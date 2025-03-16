@@ -708,9 +708,9 @@ class EditorWindow(Adw.ApplicationWindow):
         modified_marker = "⃰" if self.is_modified else ""
         if self.current_file and not self.is_new:
             base_name = os.path.splitext(self.current_file.get_basename())[0]
-            title = f"{modified_marker}{base_name} - Author"
+            title = f"{modified_marker}{base_name} – Author"
         else:
-            title = f"{modified_marker}Document{self.document_number} - Author"
+            title = f"{modified_marker}Document {self.document_number} – Author"
         self.set_title(title)
     
     def on_content_changed(self, webview, *args):
@@ -782,7 +782,7 @@ class EditorWindow(Adw.ApplicationWindow):
 
     def generate_default_name(self):
         """Generate default filename for new documents"""
-        return f"Document{self.document_number}.htm"
+        return f"Document {self.document_number}.htm"
                 
     def on_print_clicked(self, btn):
         print_operation = WebKit.PrintOperation.new(self.webview)
