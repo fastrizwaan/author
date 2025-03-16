@@ -32,7 +32,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.document_number = EditorWindow.document_counter
         EditorWindow.document_counter += 1
         self.update_title()
-        
+
         # CSS Provider
         self.css_provider = Gtk.CssProvider()
         self.css_provider.load_from_data(b"""
@@ -182,6 +182,10 @@ class EditorWindow(Adw.ApplicationWindow):
         scroll = Gtk.ScrolledWindow(vexpand=True)
         self.webview = WebKit.WebView(editable=True)
         self.webview.connect('load-changed', self.on_webview_load)
+        # Add scroll controller for zooming
+        scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        scroll_controller.connect("scroll", self.on_scroll)
+        self.webview.add_controller(scroll_controller)
         scroll.set_child(self.webview)
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -368,11 +372,41 @@ class EditorWindow(Adw.ApplicationWindow):
         self.webview.add_controller(key_controller)
         key_controller.connect("key-pressed", self.on_key_pressed)
 
+    def on_scroll(self, controller, dx, dy):
+        # Check if Control key is pressed
+        state = controller.get_current_event_state()
+        ctrl_pressed = (state & Gdk.ModifierType.CONTROL_MASK) != 0
+
+        if ctrl_pressed:
+            # Adjust zoom based on scroll direction
+            if dy < 0:  # Scroll up (zoom in)
+                self.adjust_zoom_level(0.1)
+            elif dy > 0:  # Scroll down (zoom out)
+                self.adjust_zoom_level(-0.1)
+            return True  # Consume the event
+        return False  # Propagate the event if Ctrl is not pressed
+
+    def adjust_zoom_level(self, delta):
+        current = self.webview.get_zoom_level()
+        new_zoom = current + delta
+        # Clamp between reasonable values (0.5 to 10.0)
+        new_zoom = max(0.5, min(new_zoom, 10.0))
+        self.webview.set_zoom_level(new_zoom)
+
     def on_key_pressed(self, controller, keyval, keycode, state):
         """Handle key press events for shortcuts."""
         print(f"Key pressed: keyval={keyval}, keycode={keycode}, state={state}")  # Debug output
         ctrl = (state & Gdk.ModifierType.CONTROL_MASK) != 0
         shift = (state & Gdk.ModifierType.SHIFT_MASK) != 0
+
+        if ctrl:
+            # Handle zoom in/out with Ctrl+Plus/Equal and Ctrl+Minus
+            if keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+                self.adjust_zoom_level(0.1)
+                return True
+            elif keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+                self.adjust_zoom_level(-0.1)
+                return True
 
         if ctrl and not shift:
             if keyval == Gdk.KEY_n:
