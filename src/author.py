@@ -219,10 +219,10 @@ class EditorWindow(Adw.ApplicationWindow):
             view_group.append(btn)
 
         zoom_store = Gtk.StringList()
-        for level in ["10%", "25%", "50%", "75%", "100%", "150%", "200%", "400%", "1000%"]:
+        for level in ["50%", "60%", "70%", "80%", "90%", "100%", "110%", "120%", "130%", "140%", "150%", "160%", "170%", "180%", "190%", "200%", "210%", "220%", "230%", "240%", "250%", "260%", "270%", "280%", "290%", "300%", "320%", "340%", "360%", "380%", "400%", "425%", "450%", "475%", "500%", "600%", "700%", "800%", "900%", "1000%"]:
             zoom_store.append(level)
         zoom_dropdown = Gtk.DropDown(model=zoom_store)
-        zoom_dropdown.set_selected(4)
+        zoom_dropdown.set_selected(5)
         zoom_dropdown.connect("notify::selected", self.on_zoom_changed)
         zoom_dropdown.add_css_class("flat")
         view_group.append(zoom_dropdown)
