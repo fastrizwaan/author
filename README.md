@@ -1,4 +1,3 @@
-
 # Author
 
 **A simple, open-source WYSIWYG HTML editor that lets you create and edit documents effortlessly with instant visual feedback.**
@@ -22,7 +21,11 @@ Author is a lightweight, GTK-based application built with Python and WebKit, off
 
 ## Screenshots
 
-*(Add screenshots here, e.g., `![Main Window](screenshots/main_window.png)` after uploading them to the repo.)*
+![Author in Bright Mode](https://github.com/fastrizwaan/author/releases/download/0.1/Author-Bright.png)  
+*Author in Bright Mode*
+
+![Author in Dark Mode](https://github.com/fastrizwaan/author/releases/download/0.1/Author-Dark.png)  
+*Author in Dark Mode*
 
 ## Installation
 
@@ -55,7 +58,7 @@ sudo apt install python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-webkit-6.
 
 ## Usage
 
-1. Launch the app with `python3 author.py`.
+1. Launch the app with `python3 src/author.py`.
 2. Use the toolbar to format text, adjust fonts, or apply colors.
 3. Save your work as an HTML file via *File > Save* or *Save As*.
 4. Open existing HTML files with *File > Open*.
@@ -81,4 +84,5 @@ This project is licensed under the [MIT License](LICENSE). See the LICENSE file 
 
 - Built with [GTK 4](https://www.gtk.org/), [Libadwaita](https://gitlab.gnome.org/GNOME/libadwaita), and [WebKitGTK](https://webkitgtk.org/).
 - Created by [fastrizwaan](https://github.com/fastrizwaan).
+
 
