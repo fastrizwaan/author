@@ -517,21 +517,17 @@ class EditorWindow(Adw.ApplicationWindow):
             btn.set_icon_name("weather-clear-night")
             script = """
                 (function() {
-                    let styleId = 'dynamic-theme-style';
-                    let existingStyle = document.getElementById(styleId);
-                    if (!existingStyle) {
-                        let style = document.createElement('style');
-                        style.id = styleId;
-                        style.textContent = `
-                            @media (prefers-color-scheme: dark) { 
-                                body { background-color: #242424 !important; color: #e0e0e0 !important; } 
+                    let style = document.createElement('style');
+                    style.id = 'dynamic-theme-style';
+                    style.textContent = `
+                        @media screen {
+                            body { 
+                                background-color: #242424 !important; 
+                                color: #e0e0e0 !important; 
                             }
-                            @media (prefers-color-scheme: light) { 
-                                body { background-color: #ffffff !important; color: #000000 !important; } 
-                            }
-                        `;
-                        document.head.appendChild(style);
-                    }
+                        }
+                    `;
+                    document.head.appendChild(style);
                 })();
             """
         else:
