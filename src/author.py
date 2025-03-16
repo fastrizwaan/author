@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import gi, json
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -27,6 +28,7 @@ class EditorWindow(Adw.ApplicationWindow):
         
         # Initialize document state
         self.current_file = None
+        self.is_new = True 
         self.document_number = EditorWindow.document_counter
         EditorWindow.document_counter += 1
         self.update_title()
@@ -453,7 +455,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
 
         elif ctrl and shift:
-            if keyval == Gdk.KEY_s:
+            if keyval == Gdk.KEY_S:
                 print("CTRL+SHIFT+S pressed")
                 self.on_save_as_clicked(None)
                 return True
@@ -598,34 +600,23 @@ class EditorWindow(Adw.ApplicationWindow):
         self.open_file_dialog()
     
     def update_title(self):
-        """Update window title based on current file or document number"""
-        if self.current_file:
-            # Get display name directly from GFile
-            self.set_title(f"{self.current_file.get_basename()} - Author")
+        """Update window title based on current file state"""
+        if self.current_file and not self.is_new:
+            # Remove file extension from basename
+            base_name = os.path.splitext(self.current_file.get_basename())[0]
+            title = f"{base_name} - Author"
         else:
-            self.set_title(f"Document{self.document_number} - Author")
+            title = f"Document{self.document_number} - Author"
+        self.set_title(title)
 
     def on_save_clicked(self, btn):
-        dialog = Gtk.FileDialog()
-        dialog.set_title("Save HTML File")
-        
-        if self.current_file:
-            dialog.set_initial_file(self.current_file)
+        """Handle Save action with different behavior for new/existing files"""
+        if self.current_file and not self.is_new:
+            # Direct overwrite for existing saved files
+            self.save_to_file(self.current_file)
         else:
-            dialog.set_initial_name(f"Document{self.document_number}.html")
-        
-        # Create filter properly
-        filter_html = Gtk.FileFilter()
-        filter_html.set_name("HTML Files (*.html, *.htm)")
-        filter_html.add_pattern("*.html")
-        filter_html.add_pattern("*.htm")
-        
-        # Create list store with correct type
-        filter_store = Gio.ListStore.new(Gtk.FileFilter)
-        filter_store.append(filter_html)
-        
-        dialog.set_filters(filter_store)
-        dialog.save(self, None, self.save_callback)
+            # Show save dialog for new/untitled files
+            self.show_save_dialog()
 
     def on_new_clicked(self, btn): 
         # Reset to new document document
@@ -653,9 +644,36 @@ class EditorWindow(Adw.ApplicationWindow):
         except GLib.Error as e:
             print("Save error:", e.message)
     
-    def on_save_as_clicked(self, btn): 
-        self.on_save_clicked(btn)
+    def on_save_as_clicked(self, btn):
+        """Always show save dialog with suggested name"""
+        self.show_save_dialog(is_save_as=True)
     
+    def show_save_dialog(self, is_save_as=False):
+        """Common method to handle save dialogs"""
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Save As" if is_save_as else "Save")
+
+        # Set initial suggestion
+        if self.current_file and not self.is_new:
+            dialog.set_initial_file(self.current_file)
+        else:
+            dialog.set_initial_name(self.generate_default_name())
+
+        # Configure file filters
+        filter_store = Gio.ListStore.new(Gtk.FileFilter)
+        filter_html = Gtk.FileFilter()
+        filter_html.set_name("HTML Files")
+        filter_html.add_pattern("*.html")
+        filter_html.add_pattern("*.htm")
+        filter_store.append(filter_html)
+        dialog.set_filters(filter_store)
+
+        dialog.save(self, None, self.save_callback)
+
+    def generate_default_name(self):
+        """Generate default filename for new documents"""
+        return f"Document{self.document_number}.htm"
+                
     def on_print_clicked(self, btn):
         print_operation = WebKit.PrintOperation.new(self.webview)
         print_operation.run_dialog(self)
@@ -984,38 +1002,56 @@ class EditorWindow(Adw.ApplicationWindow):
         try:
             file = dialog.open_finish(result)
             if file:
+                # Set current file reference and update title
+                self.current_file = file
+                self.is_new = False
+                self.update_title()
+                
+                # Load file contents
                 file.load_contents_async(None, self.load_callback)
         except GLib.Error as e:
             print("Open error:", e.message)
-    
+
     def load_callback(self, file, result):
         try:
             ok, content, _ = file.load_contents_finish(result)
             if ok:
+                # Update document state
+                self.current_file = file
+                self.is_new = False
+                self.update_title()
+                
+                # Load content into webview
                 self.webview.load_html(content.decode(), file.get_uri())
         except GLib.Error as e:
             print("Load error:", e.message)
     
     def save_callback(self, dialog, result):
+        """Handle save dialog response"""
         try:
             file = dialog.save_finish(result)
             if file:
-                self.current_file = file  # Store GFile object directly
+                self.current_file = file
+                self.is_new = False
                 self.update_title()
-                self.webview.evaluate_javascript(
-                    "document.documentElement.outerHTML",
-                    -1,
-                    None,
-                    None,
-                    None,
-                    self.save_html_callback,
-                    file
-                )
+                self.save_to_file(file)
         except GLib.Error as e:
             print("Save error:", e.message)
 
+    def save_to_file(self, file):
+        """Perform actual file save operation"""
+        self.webview.evaluate_javascript(
+            "document.documentElement.outerHTML",
+            -1,
+            None,
+            None,
+            None,
+            self.save_html_callback,
+            file
+        )
     
     def save_html_callback(self, webview, result, file):
+        """Handle HTML content retrieval"""
         try:
             js_value = webview.evaluate_javascript_finish(result)
             if js_value:
@@ -1032,12 +1068,13 @@ class EditorWindow(Adw.ApplicationWindow):
             print("HTML save error:", e.message)
 
     def final_save_callback(self, file, result):
+        """Finalize save operation"""
         try:
             file.replace_contents_finish(result)
             print(f"File successfully saved to: {file.get_path()}")
         except GLib.Error as e:
             print("Final save error:", e.message)
-    
+
     def add_css_styles(self):
         provider = Gtk.CssProvider()
         provider.load_from_data(b"window { background-color: @window_bg_color; }")
