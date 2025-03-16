@@ -18,12 +18,19 @@ class Author(Adw.Application):
         win.present()
 
 class EditorWindow(Adw.ApplicationWindow):
+    document_counter = 1 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.set_title("Author")
         self.set_default_size(1000, 700)
         self.add_css_styles()
-
+        
+        # Initialize document state
+        self.current_file = None
+        self.document_number = EditorWindow.document_counter
+        EditorWindow.document_counter += 1
+        self.update_title()
+        
         # CSS Provider
         self.css_provider = Gtk.CssProvider()
         self.css_provider.load_from_data(b"""
@@ -590,17 +597,61 @@ class EditorWindow(Adw.ApplicationWindow):
     def on_open_clicked(self, btn): 
         self.open_file_dialog()
     
+    def update_title(self):
+        """Update window title based on current file or document number"""
+        if self.current_file:
+            # Get display name directly from GFile
+            self.set_title(f"{self.current_file.get_basename()} - Author")
+        else:
+            self.set_title(f"Document{self.document_number} - Author")
+
     def on_save_clicked(self, btn):
         dialog = Gtk.FileDialog()
         dialog.set_title("Save HTML File")
-        dialog.set_initial_name("document.html")
+        
+        if self.current_file:
+            dialog.set_initial_file(self.current_file)
+        else:
+            dialog.set_initial_name(f"Document{self.document_number}.html")
+        
+        # Create filter properly
         filter_html = Gtk.FileFilter()
-        filter_html.set_name("HTML Files (*.html)")
+        filter_html.set_name("HTML Files (*.html, *.htm)")
         filter_html.add_pattern("*.html")
+        filter_html.add_pattern("*.htm")
+        
+        # Create list store with correct type
         filter_store = Gio.ListStore.new(Gtk.FileFilter)
         filter_store.append(filter_html)
+        
         dialog.set_filters(filter_store)
         dialog.save(self, None, self.save_callback)
+
+    def on_new_clicked(self, btn): 
+        # Reset to new document document
+        self.filename = None
+        self.document_number = EditorWindow.document_counter
+        EditorWindow.document_counter += 1
+        self.set_title(f"Document{self.document_number} - Author")
+        self.webview.load_html(self.initial_html, "file:///")
+
+    def save_callback(self, dialog, result):
+        try:
+            file = dialog.save_finish(result)
+            if file:
+                self.current_file = file  # Store GFile object directly
+                self.update_title()
+                self.webview.evaluate_javascript(
+                    "document.documentElement.outerHTML",
+                    -1,
+                    None,
+                    None,
+                    None,
+                    self.save_html_callback,
+                    file
+                )
+        except GLib.Error as e:
+            print("Save error:", e.message)
     
     def on_save_as_clicked(self, btn): 
         self.on_save_clicked(btn)
@@ -948,23 +999,42 @@ class EditorWindow(Adw.ApplicationWindow):
     def save_callback(self, dialog, result):
         try:
             file = dialog.save_finish(result)
-            self.webview.evaluate_javascript("document.documentElement.outerHTML", -1, None, None, None, self.save_html_callback, file)
+            if file:
+                self.current_file = file  # Store GFile object directly
+                self.update_title()
+                self.webview.evaluate_javascript(
+                    "document.documentElement.outerHTML",
+                    -1,
+                    None,
+                    None,
+                    None,
+                    self.save_html_callback,
+                    file
+                )
         except GLib.Error as e:
             print("Save error:", e.message)
+
     
     def save_html_callback(self, webview, result, file):
         try:
             js_value = webview.evaluate_javascript_finish(result)
             if js_value:
                 html = js_value.to_string()
-                file.replace_contents_bytes_async(GLib.Bytes.new(html.encode()), None, False, Gio.FileCreateFlags.REPLACE_DESTINATION, None, self.final_save_callback)
+                file.replace_contents_bytes_async(
+                    GLib.Bytes.new(html.encode()),
+                    None,
+                    False,
+                    Gio.FileCreateFlags.REPLACE_DESTINATION,
+                    None,
+                    self.final_save_callback
+                )
         except GLib.Error as e:
             print("HTML save error:", e.message)
-    
+
     def final_save_callback(self, file, result):
         try:
             file.replace_contents_finish(result)
-            print("File saved successfully to", file.get_path())
+            print(f"File successfully saved to: {file.get_path()}")
         except GLib.Error as e:
             print("Final save error:", e.message)
     
