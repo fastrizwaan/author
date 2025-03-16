@@ -28,11 +28,21 @@ class EditorWindow(Adw.ApplicationWindow):
         
         # Initialize document state
         self.current_file = None
-        self.is_new = True 
+        self.is_new = True
+        self.is_modified = False
         self.document_number = EditorWindow.document_counter
         EditorWindow.document_counter += 1
         self.update_title()
 
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        self.webview = WebKit.WebView(editable=True)
+        
+        # Register the script message handler for content changes
+        user_content = self.webview.get_user_content_manager()
+        user_content.register_script_message_handler('contentChanged')
+        user_content.connect('script-message-received::contentChanged', self.on_content_changed_js)
+        
+        self.webview.connect('load-changed', self.on_webview_load)
         # CSS Provider
         self.css_provider = Gtk.CssProvider()
         self.css_provider.load_from_data(b"""
@@ -179,9 +189,6 @@ class EditorWindow(Adw.ApplicationWindow):
         toolbars_flowbox.insert(file_toolbar_group, -1)
         toolbars_flowbox.insert(formatting_toolbar_group, -1)
 
-        scroll = Gtk.ScrolledWindow(vexpand=True)
-        self.webview = WebKit.WebView(editable=True)
-        self.webview.connect('load-changed', self.on_webview_load)
         # Add scroll controller for zooming
         scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
         scroll_controller.connect("scroll", self.on_scroll)
@@ -386,6 +393,30 @@ class EditorWindow(Adw.ApplicationWindow):
             return True  # Consume the event
         return False  # Propagate the event if Ctrl is not pressed
 
+    def on_content_changed_js(self, manager, js_result):
+        """Handle content change notifications from JavaScript"""
+        try:
+            # Check if js_result is valid and extract the value
+            if js_result and hasattr(js_result, 'get_js_value'):
+                js_value = js_result.get_js_value()
+                if js_value and js_value.is_string():
+                    value = js_value.to_string()
+                    if value == 'changed':
+                        self.is_modified = True
+                        self.update_title()
+                else:
+                    # If no specific value, assume any message means a change
+                    self.is_modified = True
+                    self.update_title()
+            else:
+                # Fallback: treat any message as a content change
+                self.is_modified = True
+                self.update_title()
+        except Exception as e:
+            print(f"Error in on_content_changed_js: {e}")
+            # Still mark as modified as a fallback
+            self.is_modified = True
+            self.update_title()
     def adjust_zoom_level(self, delta):
         current = self.webview.get_zoom_level()
         new_zoom = current + delta
@@ -588,7 +619,8 @@ class EditorWindow(Adw.ApplicationWindow):
 
     def on_webview_load(self, webview, load_event):
         if load_event == WebKit.LoadEvent.FINISHED:
-            script = """
+            # Position cursor at start
+            cursor_script = """
                 let p = document.querySelector('p');
                 if (p) {
                     let range = document.createRange();
@@ -599,8 +631,49 @@ class EditorWindow(Adw.ApplicationWindow):
                     sel.addRange(range);
                 }
             """
-            self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
+            self.webview.evaluate_javascript(cursor_script, -1, None, None, None, None, None)
             GLib.idle_add(self.webview.grab_focus)
+
+            # Add content change detection
+            change_detection_script = """
+                (function() {
+                    // Create a debounced function to reduce frequent updates
+                    function debounce(func, wait) {
+                        let timeout;
+                        return function executedFunction(...args) {
+                            const later = () => {
+                                clearTimeout(timeout);
+                                func(...args);
+                            };
+                            clearTimeout(timeout);
+                            timeout = setTimeout(later, wait);
+                        };
+                    }
+
+                    // Function to notify content change
+                    const notifyChange = debounce(function() {
+                        window.webkit.messageHandlers.contentChanged.postMessage('changed');
+                    }, 250);  // Debounce for 250ms
+
+                    // Listen for various input events
+                    document.addEventListener('input', notifyChange);
+                    document.addEventListener('keyup', notifyChange);
+                    document.addEventListener('paste', notifyChange);
+                    document.addEventListener('cut', notifyChange);
+
+                    // Monitor DOM changes for formatting commands
+                    const observer = new MutationObserver(notifyChange);
+                    observer.observe(document.body, {
+                        childList: true,
+                        subtree: true,
+                        characterData: true,
+                        attributes: true
+                    });
+                })();
+            """
+            self.webview.evaluate_javascript(change_detection_script, -1, None, None, None, None, None)
+
+            # Apply dark mode if active
             if self.dark_mode_btn.get_active():
                 dark_mode_script = """
                     (function() {
@@ -627,22 +700,24 @@ class EditorWindow(Adw.ApplicationWindow):
         self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
         self.webview.grab_focus()
 
-    def on_new_clicked(self, btn): 
-        self.webview.load_html(self.initial_html, "file:///")
-    
     def on_open_clicked(self, btn): 
         self.open_file_dialog()
     
     def update_title(self):
-        """Update window title based on current file state"""
+        """Update window title with modified indicator"""
+        modified_marker = "⃰" if self.is_modified else ""
         if self.current_file and not self.is_new:
-            # Remove file extension from basename
             base_name = os.path.splitext(self.current_file.get_basename())[0]
-            title = f"{base_name} - Author"
+            title = f"{modified_marker}{base_name} - Author"
         else:
-            title = f"Document{self.document_number} - Author"
+            title = f"{modified_marker}Document{self.document_number} - Author"
         self.set_title(title)
-
+    
+    def on_content_changed(self, webview, *args):
+        """Handle content modification"""
+        self.is_modified = True
+        self.update_title()
+    
     def on_save_clicked(self, btn):
         """Handle Save action with different behavior for new/existing files"""
         if self.current_file and not self.is_new:
@@ -653,12 +728,13 @@ class EditorWindow(Adw.ApplicationWindow):
             self.show_save_dialog()
 
     def on_new_clicked(self, btn): 
-        # Reset to new document document
-        self.filename = None
+        self.webview.load_html(self.initial_html, "file:///")
+        self.current_file = None
+        self.is_new = True
+        self.is_modified = False  # Reset modified flag for new document
         self.document_number = EditorWindow.document_counter
         EditorWindow.document_counter += 1
-        self.set_title(f"Document{self.document_number} - Author")
-        self.webview.load_html(self.initial_html, "file:///")
+        self.update_title()
 
     def save_callback(self, dialog, result):
         try:
@@ -1050,12 +1126,10 @@ class EditorWindow(Adw.ApplicationWindow):
         try:
             ok, content, _ = file.load_contents_finish(result)
             if ok:
-                # Update document state
                 self.current_file = file
                 self.is_new = False
+                self.is_modified = False  # Reset modified flag after load
                 self.update_title()
-                
-                # Load content into webview
                 self.webview.load_html(content.decode(), file.get_uri())
         except GLib.Error as e:
             print("Load error:", e.message)
@@ -1083,7 +1157,7 @@ class EditorWindow(Adw.ApplicationWindow):
             self.save_html_callback,
             file
         )
-    
+
     def save_html_callback(self, webview, result, file):
         """Handle HTML content retrieval"""
         try:
@@ -1105,6 +1179,8 @@ class EditorWindow(Adw.ApplicationWindow):
         """Finalize save operation"""
         try:
             file.replace_contents_finish(result)
+            self.is_modified = False  # Reset modified flag after successful save
+            self.update_title()
             print(f"File successfully saved to: {file.get_path()}")
         except GLib.Error as e:
             print("Final save error:", e.message)
