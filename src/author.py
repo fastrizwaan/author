@@ -24,7 +24,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.set_default_size(1000, 700)
         self.add_css_styles()
 
-        # CSS Provider (unchanged, included for context)
+        # CSS Provider
         self.css_provider = Gtk.CssProvider()
         self.css_provider.load_from_data(b"""
             .toolbar-container {
@@ -33,7 +33,6 @@ class EditorWindow(Adw.ApplicationWindow):
             }
             .flat {
                 background: none;
-
             }
             .flat:hover {
                 background: rgba(127, 127, 127, 0.25);
@@ -87,7 +86,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 border-radius: 2px;
             }
             .color-box {
-                padding: 0px;  /* Remove padding to match other buttons */
+                padding: 0px;
             }
         """)
 
@@ -111,7 +110,7 @@ class EditorWindow(Adw.ApplicationWindow):
 <body><p><br></p></body>
 </html>"""
 
-        # Main layout (unchanged, included for context)
+        # Main layout
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.set_content(main_box)
 
@@ -123,7 +122,7 @@ class EditorWindow(Adw.ApplicationWindow):
         header.set_centering_policy(Adw.CenteringPolicy.STRICT)
         toolbar_view.add_top_bar(header)
 
-        # Toolbar groups (partial, only showing relevant changes)
+        # Toolbar groups
         file_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         file_group.add_css_class("toolbar-group")
 
@@ -148,7 +147,7 @@ class EditorWindow(Adw.ApplicationWindow):
         color_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         color_group.add_css_class("toolbar-group")
 
-        # Higher-level toolbar groups (unchanged)
+        # Higher-level toolbar groups
         file_toolbar_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=15)
         file_toolbar_group.add_css_class("toolbar-group-container")
         file_toolbar_group.append(file_group)
@@ -183,7 +182,7 @@ class EditorWindow(Adw.ApplicationWindow):
 
         self.webview.load_html(self.initial_html, "file:///")
 
-        # Populate file group (unchanged, skipped for brevity)
+        # Populate file group
         for icon, handler in [
             ("document-new", self.on_new_clicked),
             ("document-open", self.on_open_clicked),
@@ -196,7 +195,7 @@ class EditorWindow(Adw.ApplicationWindow):
             btn.connect("clicked", handler)
             file_group.append(btn)
 
-        # Populate edit group (unchanged, skipped for brevity)
+        # Populate edit group
         for icon, handler in [
             ("edit-cut", self.on_cut_clicked),
             ("edit-copy", self.on_copy_clicked),
@@ -209,7 +208,7 @@ class EditorWindow(Adw.ApplicationWindow):
             btn.connect("clicked", handler)
             edit_group.append(btn)
 
-        # Populate view group (unchanged, skipped for brevity)
+        # Populate view group
         for icon, handler in [
             ("edit-find", self.on_find_clicked),
             ("edit-find-replace", self.on_replace_clicked)
@@ -233,7 +232,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.dark_mode_btn.add_css_class("flat")
         view_group.append(self.dark_mode_btn)
 
-        # Populate text style group (unchanged, skipped for brevity)
+        # Populate text style group
         heading_store = Gtk.StringList()
         for h in ["Normal", "H1", "H2", "H3", "H4", "H5", "H6"]:
             heading_store.append(h)
@@ -264,7 +263,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.size_dropdown.add_css_class("flat")
         text_style_group.append(self.size_dropdown)
 
-        # Populate text format group (unchanged, skipped for brevity)
+        # Populate text format group
         self.bold_btn = Gtk.ToggleButton(icon_name="format-text-bold")
         self.bold_btn.add_css_class("flat")
         self.bold_btn.connect("toggled", self.on_bold_toggled)
@@ -285,7 +284,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.strikethrough_btn.connect("toggled", self.on_strikethrough_toggled)
         text_format_group.append(self.strikethrough_btn)
 
-        # Populate align group (unchanged, skipped for brevity)
+        # Populate align group
         align_buttons = [
             ("format-justify-left", self.on_align_left),
             ("format-justify-center", self.on_align_center),
@@ -298,7 +297,7 @@ class EditorWindow(Adw.ApplicationWindow):
             btn.connect("clicked", handler)
             align_group.append(btn)
 
-        # Populate list group (unchanged, skipped for brevity)
+        # Populate list group
         self.bullet_btn = Gtk.ToggleButton(icon_name="view-list-bullet")
         self.bullet_btn.connect("toggled", self.on_bullet_list_toggled)
         self.bullet_btn.add_css_class("flat")
@@ -318,17 +317,16 @@ class EditorWindow(Adw.ApplicationWindow):
             btn.add_css_class("flat")
             list_group.append(btn)
 
-        # Populate color group with smaller icons and color indicators
-        # Text color button
+        # Populate color group
         text_color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        text_color_box.set_valign(Gtk.Align.CENTER)  # Center vertically within the button
+        text_color_box.set_valign(Gtk.Align.CENTER)
         text_color_box.add_css_class("color-box")
         text_color_icon = Gtk.Image.new_from_icon_name("format-text-rich-symbolic")
-        text_color_icon.set_pixel_size(12)  # Set icon size to 12 pixels
+        text_color_icon.set_pixel_size(12)
         self.text_color_indicator = Gtk.DrawingArea()
-        self.text_color_indicator.set_size_request(16, 3)  # Width: 16px, Height: 3px
+        self.text_color_indicator.set_size_request(16, 3)
         self.text_color_indicator.add_css_class("color-indicator")
-        self.text_color_indicator.set_draw_func(self.draw_color_indicator, None)  # Default black
+        self.text_color_indicator.set_draw_func(self.draw_color_indicator, None)
         text_color_box.append(text_color_icon)
         text_color_box.append(self.text_color_indicator)
         text_color_btn = Gtk.Button(child=text_color_box)
@@ -336,16 +334,15 @@ class EditorWindow(Adw.ApplicationWindow):
         text_color_btn.connect("clicked", self.on_text_color_clicked)
         color_group.append(text_color_btn)
 
-        # Background color button
         bg_color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        bg_color_box.set_valign(Gtk.Align.CENTER)  # Center vertically within the button
+        bg_color_box.set_valign(Gtk.Align.CENTER)
         bg_color_box.add_css_class("color-box")
         bg_color_icon = Gtk.Image.new_from_icon_name("applications-graphics-symbolic")
-        bg_color_icon.set_pixel_size(12)  # Set icon size to 12 pixels
+        bg_color_icon.set_pixel_size(12)
         self.bg_color_indicator = Gtk.DrawingArea()
-        self.bg_color_indicator.set_size_request(16, 3)  # Width: 16px, Height: 3px
+        self.bg_color_indicator.set_size_request(16, 3)
         self.bg_color_indicator.add_css_class("color-indicator")
-        self.bg_color_indicator.set_draw_func(self.draw_color_indicator, None)  # Default black
+        self.bg_color_indicator.set_draw_func(self.draw_color_indicator, None)
         bg_color_box.append(bg_color_icon)
         bg_color_box.append(self.bg_color_indicator)
         bg_color_btn = Gtk.Button(child=bg_color_box)
@@ -353,11 +350,123 @@ class EditorWindow(Adw.ApplicationWindow):
         bg_color_btn.connect("clicked", self.on_bg_color_clicked)
         color_group.append(bg_color_btn)
 
-        # Initialize colors (default to black)
-        self.current_text_color = Gdk.RGBA()  # Default black
-        self.current_bg_color = Gdk.RGBA()    # Default black
+        # Initialize colors
+        self.current_text_color = Gdk.RGBA()
+        self.current_bg_color = Gdk.RGBA()
 
-    # Remaining methods (unchanged, skipped for brevity)
+        # Add key event controller to WebView instead of window
+        key_controller = Gtk.EventControllerKey.new()
+        self.webview.add_controller(key_controller)
+        key_controller.connect("key-pressed", self.on_key_pressed)
+
+    def on_key_pressed(self, controller, keyval, keycode, state):
+        """Handle key press events for shortcuts."""
+        print(f"Key pressed: keyval={keyval}, keycode={keycode}, state={state}")  # Debug output
+        ctrl = (state & Gdk.ModifierType.CONTROL_MASK) != 0
+        shift = (state & Gdk.ModifierType.SHIFT_MASK) != 0
+
+        if ctrl and not shift:
+            if keyval == Gdk.KEY_n:
+                print("CTRL+N pressed")
+                self.on_new_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_o:
+                print("CTRL+O pressed")
+                self.on_open_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_s:
+                print("CTRL+S pressed")
+                self.on_save_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_p:
+                print("CTRL+P pressed")
+                self.on_print_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_x:
+                print("CTRL+X pressed")
+                self.exec_js("""
+                    (function() {
+                        let sel = window.getSelection();
+                        if (sel.rangeCount) {
+                            let range = sel.getRangeAt(0);
+                            let span = document.createElement('span');
+                            span.style.backgroundColor = 'yellow';
+                            range.surroundContents(span);
+                            document.execCommand('cut');
+                            setTimeout(() => { if (span.parentNode) span.outerHTML = span.innerHTML; }, 1000);
+                        }
+                    })();
+                """)
+                return True
+            elif keyval == Gdk.KEY_c:
+                print("CTRL+C pressed")
+                self.on_copy_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_v:
+                print("CTRL+V pressed")
+                self.on_paste_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_z:
+                print("CTRL+Z pressed")
+                self.on_undo_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_y:
+                print("CTRL+Y pressed")
+                self.on_redo_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_f:
+                print("CTRL+F pressed")
+                self.on_find_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_h:
+                print("CTRL+H pressed")
+                self.on_replace_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_l:
+                print("CTRL+L pressed")
+                self.on_align_left(None)
+                return True
+            elif keyval == Gdk.KEY_e:
+                print("CTRL+E pressed")
+                self.on_align_center(None)
+                return True
+            elif keyval == Gdk.KEY_r:
+                print("CTRL+R pressed")
+                self.on_align_right(None)
+                return True
+            elif keyval == Gdk.KEY_j:
+                print("CTRL+J pressed")
+                self.on_align_justify(None)
+                return True
+            elif keyval in (Gdk.KEY_0, Gdk.KEY_1, Gdk.KEY_2, Gdk.KEY_3, 
+                          Gdk.KEY_4, Gdk.KEY_5, Gdk.KEY_6):
+                heading_index = keyval - Gdk.KEY_0
+                print(f"CTRL+{heading_index} pressed")
+                self.exec_js(f"document.execCommand('formatBlock', false, '{['div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'][heading_index]}')")
+                return True
+
+        elif ctrl and shift:
+            if keyval == Gdk.KEY_s:
+                print("CTRL+SHIFT+S pressed")
+                self.on_save_as_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_z:
+                print("CTRL+SHIFT+Z pressed")
+                self.on_redo_clicked(None)
+                return True
+
+        elif not ctrl:
+            if keyval == Gdk.KEY_F12 and not shift:
+                print("F12 pressed")
+                self.on_number_list_toggled(self.number_btn)
+                return True
+            elif keyval == Gdk.KEY_F12 and shift:
+                print("SHIFT+F12 pressed")
+                self.on_bullet_list_toggled(self.bullet_btn)
+                return True
+
+        return False
+
     def draw_color_indicator(self, area, cr, width, height, data):
         if area == self.text_color_indicator:
             color = self.current_text_color
@@ -402,35 +511,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.exec_js(f"document.execCommand('backColor', false, '{color}')")
         except GLib.Error as e:
             print("Background color selection error:", e.message)
-
-    def setup_align_dropdown_item(self, factory, list_item):
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        icon = Gtk.Image()
-        label = Gtk.Label()
-        box.append(icon)
-        box.append(label)
-        list_item.set_child(box)
-
-    def bind_align_dropdown_item(self, factory, list_item, align_options):
-        box = list_item.get_child()
-        icon = box.get_first_child()
-        label = icon.get_next_sibling()
-        pos = list_item.get_position()
-        label_text, icon_name, _ = align_options[pos]
-        label.set_text(label_text)
-        icon.set_from_icon_name(icon_name)
-
-    def on_align_changed(self, dropdown, *args):
-        align_options = [
-            ("Left", "format-justify-left", self.on_align_left),
-            ("Center", "format-justify-center", self.on_align_center),
-            ("Right", "format-justify-right", self.on_align_right),
-            ("Justify", "format-justify-fill", self.on_align_justify)
-        ]
-        selected = dropdown.get_selected()
-        if 0 <= selected < len(align_options):
-            _, _, handler = align_options[selected]
-            handler()
 
     def on_dark_mode_toggled(self, btn):
         if btn.get_active():
@@ -534,7 +614,19 @@ class EditorWindow(Adw.ApplicationWindow):
         print_operation.run_dialog(self)
     
     def on_cut_clicked(self, btn): 
-        self.exec_js("document.execCommand('cut')")
+        self.exec_js("""
+            (function() {
+                let sel = window.getSelection();
+                if (sel.rangeCount) {
+                    let range = sel.getRangeAt(0);
+                    let span = document.createElement('span');
+                    span.style.backgroundColor = 'yellow';
+                    range.surroundContents(span);
+                    document.execCommand('cut');
+                    setTimeout(() => { if (span.parentNode) span.outerHTML = span.innerHTML; }, 1000);
+                }
+            })();
+        """)
     
     def on_copy_clicked(self, btn): 
         self.exec_js("document.execCommand('copy')")
@@ -679,10 +771,6 @@ class EditorWindow(Adw.ApplicationWindow):
         
         dialog.connect("response", on_response)
         dialog.present()
-    
-    def replace_text(self, search, replacement):
-        script = f"""document.body.innerHTML = document.body.innerHTML.split({json.dumps(search)}).join({json.dumps(replacement)});"""
-        self.exec_js(script)
     
     def on_zoom_changed(self, dropdown, *args):
         selected_item = dropdown.get_selected_item()
@@ -830,14 +918,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 })();
             """
             self.exec_js(script)
-    
-    def on_text_color_set(self, btn):
-        color = btn.get_rgba().to_string()
-        self.exec_js(f"document.execCommand('foreColor', false, '{color}')")
-    
-    def on_bg_color_set(self, btn):
-        color = btn.get_rgba().to_string()
-        self.exec_js(f"document.execCommand('backColor', false, '{color}')")
     
     def open_file_dialog(self):
         file_dialog = Gtk.FileDialog.new()
