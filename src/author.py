@@ -255,10 +255,10 @@ class EditorWindow(Adw.ApplicationWindow):
         text_style_group.append(self.font_dropdown)
 
         size_store = Gtk.StringList()
-        for size in ["8", "10", "11", "12", "14", "16", "18", "24", "36", "48"]:
+        for size in ["6", "7", "8", "9", "10", "10.5", "11", "12", "13", "14", "15", "16", "18", "20", "21", "22", "24", "26", "28", "32", "36", "40", "42", "44", "48", "54", "60", "66", "72", "80", "88", "96"]:
             size_store.append(size)
         self.size_dropdown = Gtk.DropDown(model=size_store)
-        self.size_dropdown.set_selected(2)
+        self.size_dropdown.set_selected(6)
         self.size_dropdown.connect("notify::selected", self.on_font_size_changed)
         self.size_dropdown.add_css_class("flat")
         text_style_group.append(self.size_dropdown)
