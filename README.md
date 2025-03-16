@@ -50,7 +50,7 @@ sudo apt install python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-webkit-6.
    ```
 2. Run the app:
    ```bash
-   python3 author.py
+   python3 src/author.py
    ```
 
 ## Usage
