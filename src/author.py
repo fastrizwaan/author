@@ -741,23 +741,6 @@ class EditorWindow(Adw.ApplicationWindow):
         EditorWindow.document_counter += 1
         self.update_title()
 
-    def save_callback(self, dialog, result):
-        try:
-            file = dialog.save_finish(result)
-            if file:
-                self.current_file = file  # Store GFile object directly
-                self.update_title()
-                self.webview.evaluate_javascript(
-                    "document.documentElement.outerHTML",
-                    -1,
-                    None,
-                    None,
-                    None,
-                    self.save_html_callback,
-                    file
-                )
-        except GLib.Error as e:
-            print("Save error:", e.message)
     
     def on_save_as_clicked(self, btn):
         """Always show save dialog with suggested name"""
@@ -776,19 +759,41 @@ class EditorWindow(Adw.ApplicationWindow):
 
         # Configure file filters
         filter_store = Gio.ListStore.new(Gtk.FileFilter)
+
+        # Combined filter for Author Files (*.hdoc, *.html, *.htm)
+        file_filter_combined = Gtk.FileFilter()
+        file_filter_combined.set_name("Author Files (*.hdoc, *.html, *.htm)")
+        file_filter_combined.add_pattern("*.hdoc")
+        file_filter_combined.add_pattern("*.html")
+        file_filter_combined.add_pattern("*.htm")
+        filter_store.append(file_filter_combined)
+
+        # Specific filter for Author Documents (*.hdoc)
+        filter_hdoc = Gtk.FileFilter()
+        filter_hdoc.set_name("Author Documents (*.hdoc)")
+        filter_hdoc.add_pattern("*.hdoc")
+        filter_store.append(filter_hdoc)
+
+        # Specific filter for HTML Files (*.html, *.htm)
         filter_html = Gtk.FileFilter()
-        filter_html.set_name("HTML Files")
+        filter_html.set_name("HTML Files (*.html, *.htm)")
         filter_html.add_pattern("*.html")
         filter_html.add_pattern("*.htm")
         filter_store.append(filter_html)
+
+        # Set the filters to the dialog
         dialog.set_filters(filter_store)
 
+        # Set the default filter to Author Documents (suggests .hdoc)
+        dialog.set_default_filter(filter_hdoc)
+
+        # Show the save dialog with the existing callback
         dialog.save(self, None, self.save_callback)
 
     def generate_default_name(self):
         """Generate default filename for new documents"""
         current_date = datetime.now().strftime("%Y-%m-%d")
-        return f"Document {self.document_number} - {current_date}.htm"
+        return f"Document {self.document_number} - {current_date}.hdoc"
                 
     def on_print_clicked(self, btn):
         print_operation = WebKit.PrintOperation.new(self.webview)
@@ -1102,17 +1107,44 @@ class EditorWindow(Adw.ApplicationWindow):
     
     def open_file_dialog(self):
         file_dialog = Gtk.FileDialog.new()
-        filter_model = Gio.ListStore.new(Gtk.FileFilter)
-        filter_model.append(self.create_file_filter())
-        file_dialog.set_filters(filter_model)
+        filter_store = Gio.ListStore.new(Gtk.FileFilter)
+
+        # Combined filter for all supported files
+        combined_filter = self.create_combined_file_filter()
+        filter_store.append(combined_filter)
+
+        # Specific filter for .hdoc
+        hdoc_filter = self.create_hdoc_filter()
+        filter_store.append(hdoc_filter)
+
+        # Specific filter for .html and .htm
+        html_filter = self.create_html_filter()
+        filter_store.append(html_filter)
+
+        file_dialog.set_filters(filter_store)
         file_dialog.open(self, None, self.on_open_file_dialog_response)
-    
-    def create_file_filter(self):
+
+    def create_combined_file_filter(self):
+        file_filter = Gtk.FileFilter()
+        file_filter.set_name("Author Files (*.hdoc, *.html, *.htm)")
+        file_filter.add_pattern("*.hdoc")
+        file_filter.add_pattern("*.html")
+        file_filter.add_pattern("*.htm")
+        return file_filter
+
+    def create_hdoc_filter(self):
+        file_filter = Gtk.FileFilter()
+        file_filter.set_name("Author Documents (*.hdoc)")
+        file_filter.add_pattern("*.hdoc")
+        return file_filter
+
+    def create_html_filter(self):
         file_filter = Gtk.FileFilter()
         file_filter.set_name("HTML Files (*.html, *.htm)")
         file_filter.add_pattern("*.html")
         file_filter.add_pattern("*.htm")
         return file_filter
+    
     
     def on_open_file_dialog_response(self, dialog, result):
         try:
@@ -1145,13 +1177,31 @@ class EditorWindow(Adw.ApplicationWindow):
         try:
             file = dialog.save_finish(result)
             if file:
+                file_path = file.get_path()
+                print(f"Original file path: {file_path}")
+
+                # Since get_current_filter isn't available, infer extension from file path
+                # or default to .hdoc if no extension is provided
+                if file_path.endswith(".html") or file_path.endswith(".htm"):
+                    new_extension = ".htm"
+                elif file_path.endswith(".hdoc"):
+                    new_extension = ".hdoc"
+                else:
+                    # Default to .hdoc if no recognized extension
+                    new_extension = ".hdoc"
+                    base_path = file_path.rsplit('.', 1)[0] if '.' in file_path else file_path
+                    file_path = base_path + new_extension
+                    file = Gio.File.new_for_path(file_path)
+
+                print(f"New file path: {file_path}")
+
                 self.current_file = file
                 self.is_new = False
                 self.update_title()
                 self.save_to_file(file)
         except GLib.Error as e:
             print("Save error:", e.message)
-
+            
     def save_to_file(self, file):
         """Perform actual file save operation"""
         self.webview.evaluate_javascript(
@@ -1219,7 +1269,7 @@ class EditorWindow(Adw.ApplicationWindow):
                             self.save_to_file(self.current_file)
                             self.start_new_document()
                         else:
-                            self.show_save_dialog_for_new()
+                            self.show_save_dialog()
                     elif response == "discard":
                         self.start_new_document()
                     dialog.destroy()
@@ -1257,7 +1307,7 @@ class EditorWindow(Adw.ApplicationWindow):
                         self.save_to_file(self.current_file)
                         self.get_application().quit()
                     else:
-                        self.show_save_dialog_after_close()
+                        self.show_save_dialog()
                 elif response == "discard":
                     self.get_application().quit()
                 dialog.destroy()
@@ -1266,7 +1316,8 @@ class EditorWindow(Adw.ApplicationWindow):
             dialog.present()
             return True
         return False
-    def show_save_dialog_for_new(self):
+    
+    def xshow_save_dialog_for_new(self):
         """Show save dialog before creating new document"""
         dialog = Gtk.FileDialog()
         dialog.set_title("Save")
@@ -1316,6 +1367,8 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.get_application().quit()
             return True
 ################ /on Close clicked #####################
+
+
 
 if __name__ == "__main__":
     app = Author()

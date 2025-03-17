@@ -88,8 +88,12 @@ install_files() {
     # Install .desktop file from data/shortcut/
     install -Dm644 data/shortcut/io.github.fastrizwaan.author.desktop "$INSTALL_PATH/share/applications/io.github.fastrizwaan.author.desktop"
 
+    # Install MIME type definition from data/mimetype/
+    install -Dm644 data/mimetype/author-document.xml "$INSTALL_PATH/share/mime/packages/author-document.xml"
+
     # Update system databases
-    echo "Updating icon and desktop caches..."
+    echo "Updating MIME, icon, and desktop caches..."
+    update-mime-database "$INSTALL_PATH/share/mime" &> /dev/null || echo "Failed to update MIME database."
     gtk-update-icon-cache "$INSTALL_PATH/share/icons/hicolor/" &> /dev/null || echo "Failed to update icon cache."
     update-desktop-database "$INSTALL_PATH/share/applications/" &> /dev/null || echo "Failed to update desktop database."
 
@@ -103,9 +107,11 @@ uninstall_files() {
     rm -f "$INSTALL_PATH/bin/author"
     rm -f "$INSTALL_PATH/share/icons/hicolor/scalable/apps/io.github.fastrizwaan.author.svg"
     rm -f "$INSTALL_PATH/share/applications/io.github.fastrizwaan.author.desktop"
+    rm -f "$INSTALL_PATH/share/mime/packages/author-document.xml"
 
     # Update system databases
-    echo "Updating icon and desktop caches after uninstall..."
+    echo "Updating MIME, icon, and desktop caches after uninstall..."
+    update-mime-database "$INSTALL_PATH/share/mime" &> /dev/null || echo "Failed to update MIME database."
     gtk-update-icon-cache "$INSTALL_PATH/share/icons/hicolor/" &> /dev/null || echo "Failed to update icon cache."
     update-desktop-database "$INSTALL_PATH/share/applications/" &> /dev/null || echo "Failed to update desktop database."
 

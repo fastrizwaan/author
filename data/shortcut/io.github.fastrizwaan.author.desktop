@@ -7,4 +7,4 @@ MimeType=text/html;
 Icon=io.github.fastrizwaan.author
 StartupNotify=true
 Categories=Office;
-Keywords=richtext;word;html;wysiwyg
+Keywords=richtext;word;html;wysiwyg;document;rtf;
