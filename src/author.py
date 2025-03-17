@@ -441,6 +441,10 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
 
         if ctrl and not shift:
+            if keyval == Gdk.KEY_w:
+                print("CTRL+W pressed")
+                self.on_close_document_clicked(None)
+                return True
             if keyval == Gdk.KEY_n:
                 print("CTRL+N pressed")
                 self.on_new_clicked(None)
@@ -1192,9 +1196,126 @@ class EditorWindow(Adw.ApplicationWindow):
         provider.load_from_data(b"window { background-color: @window_bg_color; }")
         Gtk.StyleContext.add_provider_for_display(self.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     
+################ on Close ctrl+w #####################
+    def check_save_before_new(self):
+            """Check if document needs saving before creating new document"""
+            if self.is_modified:
+                dialog = Adw.MessageDialog(
+                    transient_for=self,
+                    heading="Save changes?",
+                    body="Do you want to save changes to this document before starting a new one?",
+                    close_response="cancel",
+                    modal=True
+                )
+                dialog.add_response("cancel", "Cancel")
+                dialog.add_response("discard", "Discard")
+                dialog.add_response("save", "Save")
+                dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+                dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+
+                def on_response(dialog, response):
+                    if response == "save":
+                        if self.current_file and not self.is_new:
+                            self.save_to_file(self.current_file)
+                            self.start_new_document()
+                        else:
+                            self.show_save_dialog_for_new()
+                    elif response == "discard":
+                        self.start_new_document()
+                    dialog.destroy()
+
+                dialog.connect("response", on_response)
+                dialog.present()
+                return True
+            return False
     def on_close_request(self, *args):
-        self.get_application().quit()
+            """Handle window close request - modified to use new check"""
+            if not self.check_save_before_close():  # Using previous close check
+                self.get_application().quit()
+            return True
+
+    # Keep the original close check for window closing
+    def check_save_before_close(self):
+        """Check if document needs saving before closing window"""
+        if self.is_modified:
+            dialog = Adw.MessageDialog(
+                transient_for=self,
+                heading="Save changes?",
+                body="Do you want to save changes to this document before closing?",
+                close_response="cancel",
+                modal=True
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("discard", "Discard")
+            dialog.add_response("save", "Save")
+            dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+
+            def on_response(dialog, response):
+                if response == "save":
+                    if self.current_file and not self.is_new:
+                        self.save_to_file(self.current_file)
+                        self.get_application().quit()
+                    else:
+                        self.show_save_dialog_after_close()
+                elif response == "discard":
+                    self.get_application().quit()
+                dialog.destroy()
+
+            dialog.connect("response", on_response)
+            dialog.present()
+            return True
         return False
+    def show_save_dialog_for_new(self):
+        """Show save dialog before creating new document"""
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Save")
+
+        if self.current_file and not self.is_new:
+            dialog.set_initial_file(self.current_file)
+        else:
+            dialog.set_initial_name(self.generate_default_name())
+
+        filter_store = Gio.ListStore.new(Gtk.FileFilter)
+        filter_html = Gtk.FileFilter()
+        filter_html.set_name("HTML Files")
+        filter_html.add_pattern("*.html")
+        filter_html.add_pattern("*.htm")
+        filter_store.append(filter_html)
+        dialog.set_filters(filter_store)
+
+        def save_and_new_callback(dialog, result):
+            try:
+                file = dialog.save_finish(result)
+                if file:
+                    self.current_file = file
+                    self.save_to_file(file)
+                    self.start_new_document()
+            except GLib.Error as e:
+                print("Save error:", e.message)
+
+        dialog.save(self, None, save_and_new_callback)
+
+    def start_new_document(self):
+            """Start a new document"""
+            self.webview.load_html(self.initial_html, "file:///")
+            self.current_file = None
+            self.is_new = True
+            self.is_modified = False
+            self.document_number = EditorWindow.document_counter
+            EditorWindow.document_counter += 1
+            self.update_title()
+    def on_close_document_clicked(self, btn):
+        """Handle close document button click - starts new document"""
+        if not self.check_save_before_new():
+            self.start_new_document()
+
+    def on_close_request(self, *args):
+            """Handle window close request"""
+            if not self.check_save_before_close():
+                self.get_application().quit()
+            return True
+################ /on Close clicked #####################
 
 if __name__ == "__main__":
     app = Author()
