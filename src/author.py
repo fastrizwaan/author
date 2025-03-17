@@ -27,6 +27,18 @@ class EditorWindow(Adw.ApplicationWindow):
         self.set_default_size(1000, 700)
         self.add_css_styles()
         
+        # State tracking for formatting
+        self.is_bold = False
+        self.is_italic = False
+        self.is_underline = False
+        self.is_strikethrough = False
+        self.is_bullet_list = False
+        self.is_number_list = False
+        self.is_align_left = True  # Default alignment
+        self.is_align_center = False
+        self.is_align_right = False
+        self.is_align_justify = False
+
         # Initialize document state
         self.current_file = None
         self.is_new = True
@@ -306,17 +318,28 @@ class EditorWindow(Adw.ApplicationWindow):
         text_format_group.append(self.strikethrough_btn)
 
         # Populate align group
-        align_buttons = [
-            ("format-justify-left", self.on_align_left),
-            ("format-justify-center", self.on_align_center),
-            ("format-justify-right", self.on_align_right),
-            ("format-justify-fill", self.on_align_justify)
-        ]
-        for icon, handler in align_buttons:
-            btn = Gtk.Button(icon_name=icon)
-            btn.add_css_class("flat")
-            btn.connect("clicked", handler)
-            align_group.append(btn)
+        self.align_left_btn = Gtk.ToggleButton(icon_name="format-justify-left")
+        self.align_left_btn.add_css_class("flat")
+        self.align_left_btn.connect("toggled", self.on_align_left)
+        align_group.append(self.align_left_btn)
+
+        self.align_center_btn = Gtk.ToggleButton(icon_name="format-justify-center")
+        self.align_center_btn.add_css_class("flat")
+        self.align_center_btn.connect("toggled", self.on_align_center)
+        align_group.append(self.align_center_btn)
+
+        self.align_right_btn = Gtk.ToggleButton(icon_name="format-justify-right")
+        self.align_right_btn.add_css_class("flat")
+        self.align_right_btn.connect("toggled", self.on_align_right)
+        align_group.append(self.align_right_btn)
+
+        self.align_justify_btn = Gtk.ToggleButton(icon_name="format-justify-fill")
+        self.align_justify_btn.add_css_class("flat")
+        self.align_justify_btn.connect("toggled", self.on_align_justify)
+        align_group.append(self.align_justify_btn)
+
+        # Set default alignment to left
+        self.align_left_btn.set_active(True)
 
         # Populate list group
         self.bullet_btn = Gtk.ToggleButton(icon_name="view-list-bullet")
@@ -394,6 +417,43 @@ class EditorWindow(Adw.ApplicationWindow):
             return True  # Consume the event
         return False  # Propagate the event if Ctrl is not pressed
 
+    # def on_content_changed_js(self, manager, js_result):
+    #     """Handle content change notifications from JavaScript"""
+    #     try:
+    #         # Check if js_result is valid and extract the value
+    #         if js_result and hasattr(js_result, 'get_js_value'):
+    #             js_value = js_result.get_js_value()
+    #             if js_value and js_value.is_string():
+    #                 value = js_value.to_string()
+    #                 if value == 'changed':
+    #                     self.is_modified = True
+    #                     self.update_title()
+    #             else:
+    #                 # If no specific value, assume any message means a change
+    #                 self.is_modified = True
+    #                 self.update_title()
+    #         else:
+    #             # Fallback: treat any message as a content change
+    #             self.is_modified = True
+    #             self.update_title()
+    #     except Exception as e:
+    #         print(f"Error in on_content_changed_js: {e}")
+    #         # Still mark as modified as a fallback
+    #         self.is_modified = True
+    #         self.update_title()
+    # def on_content_changed_js(self, manager, js_result):
+    #         try:
+    #             if js_result and hasattr(js_result, 'get_js_value'):
+    #                 js_value = js_result.get_js_value()
+    #                 if js_value and js_value.is_string():
+    #                     value = js_value.to_string()
+    #                     if value == 'changed':
+    #                         self.is_modified = True
+    #                         self.update_title()
+    #                     elif value == 'selection':
+    #                         self.update_formatting_state()
+    #         except Exception as e:
+                # print(f"Error in on_content_changed_js: {e}")   
     def on_content_changed_js(self, manager, js_result):
         """Handle content change notifications from JavaScript"""
         try:
@@ -405,6 +465,8 @@ class EditorWindow(Adw.ApplicationWindow):
                     if value == 'changed':
                         self.is_modified = True
                         self.update_title()
+                    elif value == 'selection':
+                        self.update_formatting_state()
                 else:
                     # If no specific value, assume any message means a change
                     self.is_modified = True
@@ -417,7 +479,9 @@ class EditorWindow(Adw.ApplicationWindow):
             print(f"Error in on_content_changed_js: {e}")
             # Still mark as modified as a fallback
             self.is_modified = True
-            self.update_title()
+            self.update_title()            
+                
+                         
     def adjust_zoom_level(self, delta):
         current = self.webview.get_zoom_level()
         new_zoom = current + delta
@@ -441,21 +505,42 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
 
         if ctrl and not shift:
-            if keyval == Gdk.KEY_w:
+            if keyval == Gdk.KEY_b:
+                print("CTRL+B pressed")
+                self.is_bold = not self.is_bold
+                self.apply_persistent_formatting('bold', self.is_bold)
+                self.bold_btn.set_active(self.is_bold)
+                self.webview.grab_focus()
+                return True
+            elif keyval == Gdk.KEY_i:
+                print("CTRL+I pressed")
+                self.is_italic = not self.is_italic
+                self.apply_persistent_formatting('italic', self.is_italic)
+                self.italic_btn.set_active(self.is_italic)
+                self.webview.grab_focus()
+                return True
+            elif keyval == Gdk.KEY_u:
+                print("CTRL+U pressed")
+                self.is_underline = not self.is_underline
+                self.apply_persistent_formatting('underline', self.is_underline)
+                self.underline_btn.set_active(self.is_underline)
+                self.webview.grab_focus()
+                return True
+            elif keyval == Gdk.KEY_s:
+                print("CTRL+S pressed")
+                self.on_save_clicked(None)
+                return True
+            elif keyval == Gdk.KEY_w:
                 print("CTRL+W pressed")
                 self.on_close_document_clicked(None)
                 return True
-            if keyval == Gdk.KEY_n:
+            elif keyval == Gdk.KEY_n:
                 print("CTRL+N pressed")
                 self.on_new_clicked(None)
                 return True
             elif keyval == Gdk.KEY_o:
                 print("CTRL+O pressed")
                 self.on_open_clicked(None)
-                return True
-            elif keyval == Gdk.KEY_s:
-                print("CTRL+S pressed")
-                self.on_save_clicked(None)
                 return True
             elif keyval == Gdk.KEY_p:
                 print("CTRL+P pressed")
@@ -503,25 +588,23 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
             elif keyval == Gdk.KEY_l:
                 print("CTRL+L pressed")
-                self.on_align_left(None)
+                self.align_left_btn.set_active(not self.align_left_btn.get_active())
+                self.on_align_left(self.align_left_btn)
                 return True
             elif keyval == Gdk.KEY_e:
                 print("CTRL+E pressed")
-                self.on_align_center(None)
+                self.align_center_btn.set_active(not self.align_center_btn.get_active())
+                self.on_align_center(self.align_center_btn)
                 return True
             elif keyval == Gdk.KEY_r:
                 print("CTRL+R pressed")
-                self.on_align_right(None)
+                self.align_right_btn.set_active(not self.align_right_btn.get_active())
+                self.on_align_right(self.align_right_btn)
                 return True
             elif keyval == Gdk.KEY_j:
                 print("CTRL+J pressed")
-                self.on_align_justify(None)
-                return True
-            elif keyval in (Gdk.KEY_0, Gdk.KEY_1, Gdk.KEY_2, Gdk.KEY_3, 
-                          Gdk.KEY_4, Gdk.KEY_5, Gdk.KEY_6):
-                heading_index = keyval - Gdk.KEY_0
-                print(f"CTRL+{heading_index} pressed")
-                self.exec_js(f"document.execCommand('formatBlock', false, '{['div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'][heading_index]}')")
+                self.align_justify_btn.set_active(not self.align_justify_btn.get_active())
+                self.on_align_justify(self.align_justify_btn)
                 return True
 
         elif ctrl and shift:
@@ -529,21 +612,55 @@ class EditorWindow(Adw.ApplicationWindow):
                 print("CTRL+SHIFT+S pressed")
                 self.on_save_as_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_z:
+            elif keyval == Gdk.KEY_Z:
                 print("CTRL+SHIFT+Z pressed")
                 self.on_redo_clicked(None)
                 return True
-
+            elif keyval == Gdk.KEY_X:
+                print("CTRL+SHIFT+X pressed")
+                self.is_strikethrough = not self.is_strikethrough
+                self.apply_persistent_formatting('strikethrough', self.is_strikethrough)
+                self.strikethrough_btn.set_active(self.is_strikethrough)
+                self.webview.grab_focus()
+                return True
+            elif keyval == Gdk.KEY_L:
+                print("CTRL+SHIFT+L pressed")
+                self.is_bullet_list = not self.is_bullet_list
+                self.apply_list_formatting('unordered', self.is_bullet_list)
+                self.bullet_btn.set_active(self.is_bullet_list)
+                self.webview.grab_focus()
+                return True
+            elif keyval == Gdk.KEY_asterisk:
+                print("CTRL+* pressed")
+                self.is_bullet_list = not self.is_bullet_list
+                self.apply_list_formatting('unordered', self.is_bullet_list)
+                self.bullet_btn.set_active(self.is_bullet_list)
+                self.webview.grab_focus()
+                return True
+            elif keyval == Gdk.KEY_ampersand:
+                print("CTRL+& pressed")
+                self.is_number_list = not self.is_number_list
+                self.apply_list_formatting('ordered', self.is_number_list)
+                self.number_btn.set_active(self.is_number_list)
+                self.webview.grab_focus()
+                return True
         elif not ctrl:
             if keyval == Gdk.KEY_F12 and not shift:
                 print("F12 pressed")
-                self.on_number_list_toggled(self.number_btn)
+                self.is_number_list = not self.is_number_list
+                self.apply_list_formatting('ordered', self.is_number_list)
+                self.number_btn.set_active(self.is_number_list)
+                self.webview.grab_focus()
                 return True
             elif keyval == Gdk.KEY_F12 and shift:
                 print("SHIFT+F12 pressed")
-                self.on_bullet_list_toggled(self.bullet_btn)
+                self.is_bullet_list = not self.is_bullet_list
+                self.apply_list_formatting('unordered', self.is_bullet_list)
+                self.bullet_btn.set_active(self.is_bullet_list)
+                self.webview.grab_focus()
                 return True
-
+        # Update formatting state after any key press that might affect it
+        GLib.idle_add(self.update_formatting_state)
         return False
 
     def draw_color_indicator(self, area, cr, width, height, data):
@@ -700,11 +817,28 @@ class EditorWindow(Adw.ApplicationWindow):
                     })();
                 """
                 self.exec_js(dark_mode_script)
+            
+            # Add selection change listener
+            selection_script = """
+                (function() {
+                    document.addEventListener('selectionchange', () => {
+                        window.webkit.messageHandlers.contentChanged.postMessage('selection');
+                    });
+                })();
+            """
+            self.webview.evaluate_javascript(selection_script, -1, None, None, None, None, None)
 
-    def exec_js(self, script):
-        self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
+    def exec_js(self, script, callback=None):
+        self.webview.evaluate_javascript(script, -1, None, None, None, 
+                                   callback or self.on_js_executed, None)
+    def on_js_executed(self, webview, result, user_data):
+        try:
+            js_value = webview.evaluate_javascript_finish(result)
+            if js_value and js_value.is_string():
+                print(f"JS Result: {js_value.to_string()}")
+        except Exception as e:
+            print(f"JS Execution Error: {e}")
         self.webview.grab_focus()
-
     def on_open_clicked(self, btn): 
         self.open_file_dialog()
     
@@ -968,58 +1102,86 @@ class EditorWindow(Adw.ApplicationWindow):
                 pass
     
     def on_bold_toggled(self, btn):
-        self.exec_js("document.execCommand('bold')")
+        self.is_bold = btn.get_active()
+        print(f"Bold toggled to: {self.is_bold}")
+        self.apply_persistent_formatting('bold', self.is_bold)
         self.webview.grab_focus()
 
     def on_italic_toggled(self, btn):
-        self.exec_js("document.execCommand('italic')")
+        self.is_italic = btn.get_active()
+        print(f"Italic toggled to: {self.is_italic}")
+        self.apply_persistent_formatting('italic', self.is_italic)
         self.webview.grab_focus()
 
     def on_underline_toggled(self, btn):
-        self.exec_js("document.execCommand('underline')")
+        self.is_underline = btn.get_active()
+        print(f"Underline toggled to: {self.is_underline}")
+        self.apply_persistent_formatting('underline', self.is_underline)
         self.webview.grab_focus()
 
     def on_strikethrough_toggled(self, btn):
-        self.exec_js("document.execCommand('strikethrough')")
+        self.is_strikethrough = btn.get_active()
+        print(f"Strikethrough toggled to: {self.is_strikethrough}")
+        self.apply_persistent_formatting('strikethrough', self.is_strikethrough)
         self.webview.grab_focus()
 
     def on_bullet_list_toggled(self, btn):
-        if btn.get_active():
-            if self.number_btn.get_active():
-                self.exec_js("document.execCommand('insertOrderedList')")
-                self.number_btn.set_active(False)
-            self.exec_js("document.execCommand('insertUnorderedList')")
-        else:
-            self.exec_js("document.execCommand('insertUnorderedList')")
+        self.is_bullet_list = btn.get_active()
+        print(f"Bullet list toggled to: {self.is_bullet_list}")
+        self.apply_list_formatting('unordered', self.is_bullet_list)
         self.webview.grab_focus()
 
     def on_number_list_toggled(self, btn):
-        if btn.get_active():
-            if self.bullet_btn.get_active():
-                self.exec_js("document.execCommand('insertUnorderedList')")
-                self.bullet_btn.set_active(False)
-            self.exec_js("document.execCommand('insertOrderedList')")
-        else:
-            self.exec_js("document.execCommand('insertOrderedList')")
+        self.is_number_list = btn.get_active()
+        print(f"Number list toggled to: {self.is_number_list}")
+        self.apply_list_formatting('ordered', self.is_number_list)
         self.webview.grab_focus()
-
+        
     def on_heading_changed(self, dropdown, *args):
         headings = ["div", "h1", "h2", "h3", "h4", "h5", "h6"]
         selected = dropdown.get_selected()
         if 0 <= selected < len(headings):
             self.exec_js(f"document.execCommand('formatBlock', false, '{headings[selected]}')")
     
-    def on_align_left(self, *args): 
-        self.exec_js("document.execCommand('justifyLeft')")
-    
-    def on_align_center(self, *args): 
-        self.exec_js("document.execCommand('justifyCenter')")
-    
-    def on_align_right(self, *args): 
-        self.exec_js("document.execCommand('justifyRight')")
-    
-    def on_align_justify(self, *args): 
-        self.exec_js("document.execCommand('justifyFull')")
+    def on_align_left(self, btn):
+        if btn.get_active():
+            self.is_align_left = True
+            self.is_align_center = self.is_align_right = self.is_align_justify = False
+            self.align_center_btn.set_active(False)
+            self.align_right_btn.set_active(False)
+            self.align_justify_btn.set_active(False)
+            self.exec_js("document.execCommand('justifyLeft')")
+            self.webview.grab_focus()
+
+    def on_align_center(self, btn):
+        if btn.get_active():
+            self.is_align_center = True
+            self.is_align_left = self.is_align_right = self.is_align_justify = False
+            self.align_left_btn.set_active(False)
+            self.align_right_btn.set_active(False)
+            self.align_justify_btn.set_active(False)
+            self.exec_js("document.execCommand('justifyCenter')")
+            self.webview.grab_focus()
+
+    def on_align_right(self, btn):
+        if btn.get_active():
+            self.is_align_right = True
+            self.is_align_left = self.is_align_center = self.is_align_justify = False
+            self.align_left_btn.set_active(False)
+            self.align_center_btn.set_active(False)
+            self.align_justify_btn.set_active(False)
+            self.exec_js("document.execCommand('justifyRight')")
+            self.webview.grab_focus()
+
+    def on_align_justify(self, btn):
+        if btn.get_active():
+            self.is_align_justify = True
+            self.is_align_left = self.is_align_center = self.is_align_right = False
+            self.align_left_btn.set_active(False)
+            self.align_center_btn.set_active(False)
+            self.align_right_btn.set_active(False)
+            self.exec_js("document.execCommand('justifyFull')")
+            self.webview.grab_focus()
     
     def on_indent_more(self, *args): 
         self.exec_js("document.execCommand('indent')")
@@ -1367,6 +1529,133 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.get_application().quit()
             return True
 ################ /on Close clicked #####################
+## /check format state of buttons and shortcuts
+    def apply_persistent_formatting(self, format_type, enable):
+        """Apply or remove formatting so that subsequently typed text adopts (or loses) the style."""
+        # Using execCommand for both collapsed and non-collapsed selections.
+        desired = str(enable).lower()  # yields "true" or "false"
+        script = f"""
+            (function() {{
+                let sel = window.getSelection();
+                if (!sel.rangeCount) {{
+                    let range = document.createRange();
+                    range.selectNodeContents(document.body);
+                    range.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }}
+                let cmd = '{format_type}';
+                let currentState = document.queryCommandState(cmd);
+                // Toggle the command if the current state doesn't match the desired state.
+                if (currentState !== {desired}) {{
+                    document.execCommand(cmd, false, null);
+                }}
+                console.log('Applied {format_type}: ' + {desired});
+            }})();
+        """
+        self.exec_js(script)
+
+
+    def apply_list_formatting(self, list_type, enable):
+        """Apply or remove list formatting."""
+        cmd = 'insertUnorderedList' if list_type == 'unordered' else 'insertOrderedList'
+        list_tag = 'ul' if list_type == 'unordered' else 'ol'
+        script = f"""
+            (function() {{
+                let sel = window.getSelection();
+                if (!sel.rangeCount) {{
+                    let body = document.body;
+                    let range = document.createRange();
+                    range.selectNodeContents(body);
+                    range.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }}
+                let range = sel.getRangeAt(0);
+                let isEnabled = {'true' if enable else 'false'};
+                let ancestor = range.commonAncestorContainer;
+                let parentElement = (ancestor.nodeType === 3) ? ancestor.parentElement : ancestor;
+                let currentList = parentElement.closest('{list_tag}');
+                if (isEnabled && !currentList) {{
+                    document.execCommand('{cmd}', false, null);
+                }} else if (!isEnabled && currentList) {{
+                    document.execCommand('{cmd}', false, null); // Toggle off
+                }}
+                console.log('Applied {list_type} list: ' + isEnabled + ', In List: ' + !!currentList);
+            }})();
+        """
+        self.exec_js(script)
+        if list_type == 'unordered' and enable:
+            self.is_number_list = False
+            self.number_btn.set_active(False)
+        elif list_type == 'ordered' and enable:
+            self.is_bullet_list = False
+            self.bullet_btn.set_active(False)
+    def update_formatting_state(self):
+        """Update toggle buttons based on current formatting state at cursor, using computed styles."""
+        script = """
+            (function() {
+                let sel = window.getSelection();
+                if (!sel.rangeCount) return JSON.stringify({});
+                let range = sel.getRangeAt(0);
+                let container = range.startContainer;
+                let parent = (container.nodeType === 3) ? container.parentElement : container;
+                let computedStyle = window.getComputedStyle(parent);
+                let states = {
+                    bold: computedStyle.fontWeight === 'bold' || parseInt(computedStyle.fontWeight) > 400,
+                    italic: computedStyle.fontStyle === 'italic',
+                    underline: computedStyle.textDecorationLine.includes('underline'),
+                    strikethrough: computedStyle.textDecorationLine.includes('line-through'),
+                    ul: parent.closest('ul') !== null,
+                    ol: parent.closest('ol') !== null,
+                    justifyLeft: document.queryCommandState('justifyLeft'),
+                    justifyCenter: document.queryCommandState('justifyCenter'),
+                    justifyRight: document.queryCommandState('justifyRight'),
+                    justifyFull: document.queryCommandState('justifyFull')
+                };
+                return JSON.stringify(states);
+            })();
+        """
+        self.webview.evaluate_javascript(script, -1, None, None, None, self.on_formatting_state_received, None)
+    def on_formatting_state_received(self, webview, result, user_data):
+        try:
+            js_value = webview.evaluate_javascript_finish(result)
+            if js_value and js_value.is_string():
+                states = json.loads(js_value.to_string())
+                # Update button states only if they differ from user intent
+                if states.get('bold', False) != self.is_bold:
+                    self.is_bold = states['bold']
+                    self.bold_btn.set_active(self.is_bold)
+                if states.get('italic', False) != self.is_italic:
+                    self.is_italic = states['italic']
+                    self.italic_btn.set_active(self.is_italic)
+                if states.get('underline', False) != self.is_underline:
+                    self.is_underline = states['underline']
+                    self.underline_btn.set_active(self.is_underline)
+                if states.get('strikethrough', False) != self.is_strikethrough:
+                    self.is_strikethrough = states['strikethrough']
+                    self.strikethrough_btn.set_active(self.is_strikethrough)
+                if states.get('ul', False) != self.is_bullet_list:
+                    self.is_bullet_list = states['ul']
+                    self.bullet_btn.set_active(self.is_bullet_list)
+                if states.get('ol', False) != self.is_number_list:
+                    self.is_number_list = states['ol']
+                    self.number_btn.set_active(self.is_number_list)
+                if states.get('justifyLeft', False) != self.is_align_left:
+                    self.is_align_left = states['justifyLeft']
+                    self.align_left_btn.set_active(self.is_align_left)
+                if states.get('justifyCenter', False) != self.is_align_center:
+                    self.is_align_center = states['justifyCenter']
+                    self.align_center_btn.set_active(self.is_align_center)
+                if states.get('justifyRight', False) != self.is_align_right:
+                    self.is_align_right = states['justifyRight']
+                    self.align_right_btn.set_active(self.is_align_right)
+                if states.get('justifyFull', False) != self.is_align_justify:
+                    self.is_align_justify = states['justifyFull']
+                    self.align_justify_btn.set_active(self.is_align_justify)
+        except Exception as e:
+            print(f"Error updating formatting state: {e}")
+## /check format state of buttons and shortcuts
 
 
 
