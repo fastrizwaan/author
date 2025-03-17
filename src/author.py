@@ -8,6 +8,7 @@ gi.require_version('WebKit', '6.0')
 gi.require_version('Pango', '1.0')
 gi.require_version('PangoCairo', '1.0')
 from gi.repository import Gtk, Adw, WebKit, Gio, GLib, Pango, PangoCairo, Gdk
+from datetime import datetime
 
 class Author(Adw.Application):
     def __init__(self):
@@ -782,7 +783,8 @@ class EditorWindow(Adw.ApplicationWindow):
 
     def generate_default_name(self):
         """Generate default filename for new documents"""
-        return f"Document {self.document_number}.htm"
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        return f"Document {self.document_number} - {current_date}.htm"
                 
     def on_print_clicked(self, btn):
         print_operation = WebKit.PrintOperation.new(self.webview)
