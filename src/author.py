@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 
 import os
-import gi, json
+import gi
+import json
+import zipfile
+import base64
+import re
+import shutil
+import tempfile
+from urllib.parse import urlparse
+from datetime import datetime
+
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('WebKit', '6.0')
 gi.require_version('Pango', '1.0')
 gi.require_version('PangoCairo', '1.0')
 from gi.repository import Gtk, Adw, WebKit, Gio, GLib, Pango, PangoCairo, Gdk
-from datetime import datetime
 
 class Author(Adw.Application):
     def __init__(self):
@@ -139,7 +147,7 @@ class EditorWindow(Adw.ApplicationWindow):
         img { max-width: 100%; resize: both; }
     </style>
 </head>
-<body><p><br></p></body>
+<body><p>&nbsp;</p></body>
 </html>"""
 
         # Main layout
@@ -404,60 +412,18 @@ class EditorWindow(Adw.ApplicationWindow):
         key_controller.connect("key-pressed", self.on_key_pressed)
 
     def on_scroll(self, controller, dx, dy):
-        # Check if Control key is pressed
         state = controller.get_current_event_state()
         ctrl_pressed = (state & Gdk.ModifierType.CONTROL_MASK) != 0
-
         if ctrl_pressed:
-            # Adjust zoom based on scroll direction
             if dy < 0:  # Scroll up (zoom in)
                 self.adjust_zoom_level(0.1)
             elif dy > 0:  # Scroll down (zoom out)
                 self.adjust_zoom_level(-0.1)
-            return True  # Consume the event
-        return False  # Propagate the event if Ctrl is not pressed
+            return True
+        return False
 
-    # def on_content_changed_js(self, manager, js_result):
-    #     """Handle content change notifications from JavaScript"""
-    #     try:
-    #         # Check if js_result is valid and extract the value
-    #         if js_result and hasattr(js_result, 'get_js_value'):
-    #             js_value = js_result.get_js_value()
-    #             if js_value and js_value.is_string():
-    #                 value = js_value.to_string()
-    #                 if value == 'changed':
-    #                     self.is_modified = True
-    #                     self.update_title()
-    #             else:
-    #                 # If no specific value, assume any message means a change
-    #                 self.is_modified = True
-    #                 self.update_title()
-    #         else:
-    #             # Fallback: treat any message as a content change
-    #             self.is_modified = True
-    #             self.update_title()
-    #     except Exception as e:
-    #         print(f"Error in on_content_changed_js: {e}")
-    #         # Still mark as modified as a fallback
-    #         self.is_modified = True
-    #         self.update_title()
-    # def on_content_changed_js(self, manager, js_result):
-    #         try:
-    #             if js_result and hasattr(js_result, 'get_js_value'):
-    #                 js_value = js_result.get_js_value()
-    #                 if js_value and js_value.is_string():
-    #                     value = js_value.to_string()
-    #                     if value == 'changed':
-    #                         self.is_modified = True
-    #                         self.update_title()
-    #                     elif value == 'selection':
-    #                         self.update_formatting_state()
-    #         except Exception as e:
-                # print(f"Error in on_content_changed_js: {e}")   
     def on_content_changed_js(self, manager, js_result):
-        """Handle content change notifications from JavaScript"""
         try:
-            # Check if js_result is valid and extract the value
             if js_result and hasattr(js_result, 'get_js_value'):
                 js_value = js_result.get_js_value()
                 if js_value and js_value.is_string():
@@ -468,35 +434,26 @@ class EditorWindow(Adw.ApplicationWindow):
                     elif value == 'selection':
                         self.update_formatting_state()
                 else:
-                    # If no specific value, assume any message means a change
                     self.is_modified = True
                     self.update_title()
             else:
-                # Fallback: treat any message as a content change
                 self.is_modified = True
                 self.update_title()
         except Exception as e:
             print(f"Error in on_content_changed_js: {e}")
-            # Still mark as modified as a fallback
             self.is_modified = True
-            self.update_title()            
-                
-                         
+            self.update_title()
+
     def adjust_zoom_level(self, delta):
         current = self.webview.get_zoom_level()
-        new_zoom = current + delta
-        # Clamp between reasonable values (0.5 to 10.0)
-        new_zoom = max(0.5, min(new_zoom, 10.0))
+        new_zoom = max(0.5, min(current + delta, 10.0))
         self.webview.set_zoom_level(new_zoom)
 
     def on_key_pressed(self, controller, keyval, keycode, state):
-        """Handle key press events for shortcuts."""
-        print(f"Key pressed: keyval={keyval}, keycode={keycode}, state={state}")  # Debug output
         ctrl = (state & Gdk.ModifierType.CONTROL_MASK) != 0
         shift = (state & Gdk.ModifierType.SHIFT_MASK) != 0
 
         if ctrl:
-            # Handle zoom in/out with Ctrl+Plus/Equal and Ctrl+Minus
             if keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
                 self.adjust_zoom_level(0.1)
                 return True
@@ -506,48 +463,39 @@ class EditorWindow(Adw.ApplicationWindow):
 
         if ctrl and not shift:
             if keyval == Gdk.KEY_b:
-                print("CTRL+B pressed")
                 self.is_bold = not self.is_bold
                 self.apply_persistent_formatting('bold', self.is_bold)
                 self.bold_btn.set_active(self.is_bold)
                 self.webview.grab_focus()
                 return True
             elif keyval == Gdk.KEY_i:
-                print("CTRL+I pressed")
                 self.is_italic = not self.is_italic
                 self.apply_persistent_formatting('italic', self.is_italic)
                 self.italic_btn.set_active(self.is_italic)
                 self.webview.grab_focus()
                 return True
             elif keyval == Gdk.KEY_u:
-                print("CTRL+U pressed")
                 self.is_underline = not self.is_underline
                 self.apply_persistent_formatting('underline', self.is_underline)
                 self.underline_btn.set_active(self.is_underline)
                 self.webview.grab_focus()
                 return True
             elif keyval == Gdk.KEY_s:
-                print("CTRL+S pressed")
                 self.on_save_clicked(None)
                 return True
             elif keyval == Gdk.KEY_w:
-                print("CTRL+W pressed")
                 self.on_close_document_clicked(None)
                 return True
             elif keyval == Gdk.KEY_n:
-                print("CTRL+N pressed")
                 self.on_new_clicked(None)
                 return True
             elif keyval == Gdk.KEY_o:
-                print("CTRL+O pressed")
                 self.on_open_clicked(None)
                 return True
             elif keyval == Gdk.KEY_p:
-                print("CTRL+P pressed")
                 self.on_print_clicked(None)
                 return True
             elif keyval == Gdk.KEY_x:
-                print("CTRL+X pressed")
                 self.exec_js("""
                     (function() {
                         let sel = window.getSelection();
@@ -563,82 +511,66 @@ class EditorWindow(Adw.ApplicationWindow):
                 """)
                 return True
             elif keyval == Gdk.KEY_c:
-                print("CTRL+C pressed")
                 self.on_copy_clicked(None)
                 return True
             elif keyval == Gdk.KEY_v:
-                print("CTRL+V pressed")
                 self.on_paste_clicked(None)
                 return True
             elif keyval == Gdk.KEY_z:
-                print("CTRL+Z pressed")
                 self.on_undo_clicked(None)
                 return True
             elif keyval == Gdk.KEY_y:
-                print("CTRL+Y pressed")
                 self.on_redo_clicked(None)
                 return True
             elif keyval == Gdk.KEY_f:
-                print("CTRL+F pressed")
                 self.on_find_clicked(None)
                 return True
             elif keyval == Gdk.KEY_h:
-                print("CTRL+H pressed")
                 self.on_replace_clicked(None)
                 return True
             elif keyval == Gdk.KEY_l:
-                print("CTRL+L pressed")
                 self.align_left_btn.set_active(not self.align_left_btn.get_active())
                 self.on_align_left(self.align_left_btn)
                 return True
             elif keyval == Gdk.KEY_e:
-                print("CTRL+E pressed")
                 self.align_center_btn.set_active(not self.align_center_btn.get_active())
                 self.on_align_center(self.align_center_btn)
                 return True
             elif keyval == Gdk.KEY_r:
-                print("CTRL+R pressed")
                 self.align_right_btn.set_active(not self.align_right_btn.get_active())
                 self.on_align_right(self.align_right_btn)
                 return True
             elif keyval == Gdk.KEY_j:
-                print("CTRL+J pressed")
                 self.align_justify_btn.set_active(not self.align_justify_btn.get_active())
                 self.on_align_justify(self.align_justify_btn)
                 return True
 
         elif ctrl and shift:
             if keyval == Gdk.KEY_S:
-                print("CTRL+SHIFT+S pressed")
                 self.on_save_as_clicked(None)
                 return True
             elif keyval == Gdk.KEY_Z:
-                print("CTRL+SHIFT+Z pressed")
                 self.on_redo_clicked(None)
                 return True
             elif keyval == Gdk.KEY_X:
-                print("CTRL+SHIFT+X pressed")
                 self.is_strikethrough = not self.is_strikethrough
                 self.apply_persistent_formatting('strikethrough', self.is_strikethrough)
                 self.strikethrough_btn.set_active(self.is_strikethrough)
                 self.webview.grab_focus()
                 return True
             elif keyval == Gdk.KEY_L:
-                print("CTRL+SHIFT+L pressed")
                 self.is_bullet_list = not self.is_bullet_list
                 self.apply_list_formatting('unordered', self.is_bullet_list)
                 self.bullet_btn.set_active(self.is_bullet_list)
                 self.webview.grab_focus()
                 return True
             elif keyval == Gdk.KEY_asterisk:
-                print("CTRL+* pressed")
                 self.is_bullet_list = not self.is_bullet_list
                 self.apply_list_formatting('unordered', self.is_bullet_list)
                 self.bullet_btn.set_active(self.is_bullet_list)
                 self.webview.grab_focus()
                 return True
             elif keyval == Gdk.KEY_ampersand:
-                print("CTRL+& pressed")
                 self.is_number_list = not self.is_number_list
                 self.apply_list_formatting('ordered', self.is_number_list)
                 self.number_btn.set_active(self.is_number_list)
@@ -646,20 +578,17 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
         elif not ctrl:
             if keyval == Gdk.KEY_F12 and not shift:
-                print("F12 pressed")
                 self.is_number_list = not self.is_number_list
                 self.apply_list_formatting('ordered', self.is_number_list)
                 self.number_btn.set_active(self.is_number_list)
                 self.webview.grab_focus()
                 return True
             elif keyval == Gdk.KEY_F12 and shift:
-                print("SHIFT+F12 pressed")
                 self.is_bullet_list = not self.is_bullet_list
                 self.apply_list_formatting('unordered', self.is_bullet_list)
                 self.bullet_btn.set_active(self.is_bullet_list)
                 self.webview.grab_focus()
                 return True
-        # Update formatting state after any key press that might affect it
         GLib.idle_add(self.update_formatting_state)
         return False
 
@@ -741,7 +670,6 @@ class EditorWindow(Adw.ApplicationWindow):
 
     def on_webview_load(self, webview, load_event):
         if load_event == WebKit.LoadEvent.FINISHED:
-            # Position cursor at start
             cursor_script = """
                 let p = document.querySelector('p');
                 if (p) {
@@ -756,10 +684,8 @@ class EditorWindow(Adw.ApplicationWindow):
             self.webview.evaluate_javascript(cursor_script, -1, None, None, None, None, None)
             GLib.idle_add(self.webview.grab_focus)
 
-            # Add content change detection
             change_detection_script = """
                 (function() {
-                    // Create a debounced function to reduce frequent updates
                     function debounce(func, wait) {
                         let timeout;
                         return function executedFunction(...args) {
@@ -771,19 +697,13 @@ class EditorWindow(Adw.ApplicationWindow):
                             timeout = setTimeout(later, wait);
                         };
                     }
-
-                    // Function to notify content change
                     const notifyChange = debounce(function() {
                         window.webkit.messageHandlers.contentChanged.postMessage('changed');
-                    }, 250);  // Debounce for 250ms
-
-                    // Listen for various input events
+                    }, 250);
                     document.addEventListener('input', notifyChange);
                     document.addEventListener('keyup', notifyChange);
                     document.addEventListener('paste', notifyChange);
                     document.addEventListener('cut', notifyChange);
-
-                    // Monitor DOM changes for formatting commands
                     const observer = new MutationObserver(notifyChange);
                     observer.observe(document.body, {
                         childList: true,
@@ -795,7 +715,6 @@ class EditorWindow(Adw.ApplicationWindow):
             """
             self.webview.evaluate_javascript(change_detection_script, -1, None, None, None, None, None)
 
-            # Apply dark mode if active
             if self.dark_mode_btn.get_active():
                 dark_mode_script = """
                     (function() {
@@ -818,7 +737,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 """
                 self.exec_js(dark_mode_script)
             
-            # Add selection change listener
             selection_script = """
                 (function() {
                     document.addEventListener('selectionchange', () => {
@@ -831,6 +749,7 @@ class EditorWindow(Adw.ApplicationWindow):
     def exec_js(self, script, callback=None):
         self.webview.evaluate_javascript(script, -1, None, None, None, 
                                    callback or self.on_js_executed, None)
+
     def on_js_executed(self, webview, result, user_data):
         try:
             js_value = webview.evaluate_javascript_finish(result)
@@ -839,11 +758,11 @@ class EditorWindow(Adw.ApplicationWindow):
         except Exception as e:
             print(f"JS Execution Error: {e}")
         self.webview.grab_focus()
+
     def on_open_clicked(self, btn): 
         self.open_file_dialog()
     
     def update_title(self):
-        """Update window title with modified indicator"""
         modified_marker = "⃰" if self.is_modified else ""
         if self.current_file and not self.is_new:
             base_name = os.path.splitext(self.current_file.get_basename())[0]
@@ -852,83 +771,211 @@ class EditorWindow(Adw.ApplicationWindow):
             title = f"{modified_marker}Document {self.document_number} – Author"
         self.set_title(title)
     
-    def on_content_changed(self, webview, *args):
-        """Handle content modification"""
-        self.is_modified = True
-        self.update_title()
-    
     def on_save_clicked(self, btn):
-        """Handle Save action with different behavior for new/existing files"""
         if self.current_file and not self.is_new:
-            # Direct overwrite for existing saved files
-            self.save_to_file(self.current_file)
+            if self.current_file.get_path().endswith(".page"):
+                self.save_as_page(self.current_file)
+            else:
+                self.save_to_file(self.current_file)
         else:
-            # Show save dialog for new/untitled files
             self.show_save_dialog()
 
     def on_new_clicked(self, btn): 
         self.webview.load_html(self.initial_html, "file:///")
         self.current_file = None
         self.is_new = True
-        self.is_modified = False  # Reset modified flag for new document
+        self.is_modified = False
         self.document_number = EditorWindow.document_counter
         EditorWindow.document_counter += 1
         self.update_title()
 
-    
     def on_save_as_clicked(self, btn):
-        """Always show save dialog with suggested name"""
         self.show_save_dialog(is_save_as=True)
     
     def show_save_dialog(self, is_save_as=False):
-        """Common method to handle save dialogs"""
         dialog = Gtk.FileDialog()
         dialog.set_title("Save As" if is_save_as else "Save")
-
-        # Set initial suggestion
         if self.current_file and not self.is_new:
             dialog.set_initial_file(self.current_file)
         else:
             dialog.set_initial_name(self.generate_default_name())
 
-        # Configure file filters
         filter_store = Gio.ListStore.new(Gtk.FileFilter)
-
-        # Combined filter for Author Files (*.hdoc, *.html, *.htm)
+        
         file_filter_combined = Gtk.FileFilter()
-        file_filter_combined.set_name("Author Files (*.hdoc, *.html, *.htm)")
-        file_filter_combined.add_pattern("*.hdoc")
+        file_filter_combined.set_name("Author Files (*.page, *.html, *.htm)")
+        file_filter_combined.add_pattern("*.page")
         file_filter_combined.add_pattern("*.html")
         file_filter_combined.add_pattern("*.htm")
         filter_store.append(file_filter_combined)
 
-        # Specific filter for Author Documents (*.hdoc)
-        filter_hdoc = Gtk.FileFilter()
-        filter_hdoc.set_name("Author Documents (*.hdoc)")
-        filter_hdoc.add_pattern("*.hdoc")
-        filter_store.append(filter_hdoc)
+        filter_page = Gtk.FileFilter()
+        filter_page.set_name("Page Files (*.page)")
+        filter_page.add_pattern("*.page")
+        filter_store.append(filter_page)
 
-        # Specific filter for HTML Files (*.html, *.htm)
         filter_html = Gtk.FileFilter()
         filter_html.set_name("HTML Files (*.html, *.htm)")
         filter_html.add_pattern("*.html")
         filter_html.add_pattern("*.htm")
         filter_store.append(filter_html)
 
-        # Set the filters to the dialog
         dialog.set_filters(filter_store)
-
-        # Set the default filter to Author Documents (suggests .hdoc)
-        dialog.set_default_filter(filter_hdoc)
-
-        # Show the save dialog with the existing callback
+        dialog.set_default_filter(filter_page)
         dialog.save(self, None, self.save_callback)
 
     def generate_default_name(self):
-        """Generate default filename for new documents"""
         current_date = datetime.now().strftime("%Y-%m-%d")
-        return f"Document {self.document_number} - {current_date}.hdoc"
-                
+        return f"Document {self.document_number} - {current_date}.page"
+
+    def save_callback(self, dialog, result):
+        try:
+            file = dialog.save_finish(result)
+            if file:
+                file_path = file.get_path()
+                print(f"Original file path: {file_path}")
+
+                if file_path.endswith(".page"):
+                    new_extension = ".page"
+                elif file_path.endswith(".html") or file_path.endswith(".htm"):
+                    new_extension = ".htm"
+                else:
+                    new_extension = ".page"
+                    base_path = file_path.rsplit('.', 1)[0] if '.' in file_path else file_path
+                    file_path = base_path + new_extension
+                    file = Gio.File.new_for_path(file_path)
+
+                print(f"New file path: {file_path}")
+                self.current_file = file
+                self.is_new = False
+                self.update_title()
+
+                if new_extension == ".page":
+                    self.save_as_page(file)
+                else:
+                    self.save_to_file(file)
+        except GLib.Error as e:
+            print("Save error:", e.message)
+
+    def save_to_file(self, file):
+        self.webview.evaluate_javascript(
+            "document.documentElement.outerHTML",
+            -1,
+            None,
+            None,
+            None,
+            self.save_html_callback,
+            file
+        )
+
+    def save_html_callback(self, webview, result, file):
+        try:
+            js_value = webview.evaluate_javascript_finish(result)
+            if js_value:
+                html = js_value.to_string()
+                file.replace_contents_bytes_async(
+                    GLib.Bytes.new(html.encode()),
+                    None,
+                    False,
+                    Gio.FileCreateFlags.REPLACE_DESTINATION,
+                    None,
+                    self.final_save_callback
+                )
+        except GLib.Error as e:
+            print("HTML save error:", e.message)
+
+    def save_as_page(self, file):
+        self.webview.evaluate_javascript(
+            "document.documentElement.outerHTML",
+            -1,
+            None,
+            None,
+            None,
+            self.save_page_callback,
+            file
+        )
+
+    def save_page_callback(self, webview, result, file):
+        try:
+            js_value = webview.evaluate_javascript_finish(result)
+            if js_value:
+                html_content = js_value.to_string()
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    html_path = os.path.join(temp_dir, "index.html")
+                    assets_dir = os.path.join(temp_dir, "assets")
+                    os.makedirs(assets_dir, exist_ok=True)
+
+                    html_content = self.process_images(html_content, assets_dir)
+
+                    with open(html_path, "w", encoding="utf-8") as f:
+                        f.write(html_content)
+
+                    metadata = {
+                        "zoom_level": self.webview.get_zoom_level(),
+                        "document_number": self.document_number,
+                        "created": datetime.now().isoformat()
+                    }
+                    metadata_path = os.path.join(temp_dir, "metadata.json")
+                    with open(metadata_path, "w", encoding="utf-8") as f:
+                        json.dump(metadata, f)
+
+                    zip_path = file.get_path()
+                    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                        zf.write(html_path, "index.html")
+                        zf.write(metadata_path, "metadata.json")
+                        for root, _, files in os.walk(assets_dir):
+                            for asset in files:
+                                asset_path = os.path.join(root, asset)
+                                zf.write(asset_path, os.path.join("assets", asset))
+
+                self.is_modified = False
+                self.update_title()
+                print(f"Saved as .page to: {zip_path}")
+        except GLib.Error as e:
+            print("Page save error:", e.message)
+
+    def process_images(self, html_content, assets_dir):
+        img_pattern = r'<img[^>]+src=["\'](.*?)["\']'
+        matches = re.findall(img_pattern, html_content)
+
+        for i, src in enumerate(matches):
+            if src.startswith("data:image"):
+                try:
+                    header, data = src.split(",", 1)
+                    mime_type = header.split(";")[0].replace("data:", "")
+                    ext = mime_type.split("/")[1]
+                    img_data = base64.b64decode(data)
+                    img_name = f"image_{i}.{ext}"
+                    img_path = os.path.join(assets_dir, img_name)
+                    with open(img_path, "wb") as f:
+                        f.write(img_data)
+                    html_content = html_content.replace(src, f"assets/{img_name}")
+                except Exception as e:
+                    print(f"Error processing image {i}: {e}")
+            elif src.startswith("file:///"):
+                try:
+                    parsed = urlparse(src)
+                    local_path = parsed.path
+                    if os.path.exists(local_path):
+                        img_name = f"image_{i}{os.path.splitext(local_path)[1]}"
+                        img_path = os.path.join(assets_dir, img_name)
+                        shutil.copy(local_path, img_path)
+                        html_content = html_content.replace(src, f"assets/{img_name}")
+                except Exception as e:
+                    print(f"Error copying image {i}: {e}")
+
+        return html_content
+
+    def final_save_callback(self, file, result):
+        try:
+            file.replace_contents_finish(result)
+            self.is_modified = False
+            self.update_title()
+            print(f"File successfully saved to: {file.get_path()}")
+        except GLib.Error as e:
+            print("Final save error:", e.message)
+
     def on_print_clicked(self, btn):
         print_operation = WebKit.PrintOperation.new(self.webview)
         print_operation.run_dialog(self)
@@ -1103,37 +1150,31 @@ class EditorWindow(Adw.ApplicationWindow):
     
     def on_bold_toggled(self, btn):
         self.is_bold = btn.get_active()
-        print(f"Bold toggled to: {self.is_bold}")
         self.apply_persistent_formatting('bold', self.is_bold)
         self.webview.grab_focus()
 
     def on_italic_toggled(self, btn):
         self.is_italic = btn.get_active()
-        print(f"Italic toggled to: {self.is_italic}")
         self.apply_persistent_formatting('italic', self.is_italic)
         self.webview.grab_focus()
 
     def on_underline_toggled(self, btn):
         self.is_underline = btn.get_active()
-        print(f"Underline toggled to: {self.is_underline}")
         self.apply_persistent_formatting('underline', self.is_underline)
         self.webview.grab_focus()
 
     def on_strikethrough_toggled(self, btn):
         self.is_strikethrough = btn.get_active()
-        print(f"Strikethrough toggled to: {self.is_strikethrough}")
         self.apply_persistent_formatting('strikethrough', self.is_strikethrough)
         self.webview.grab_focus()
 
     def on_bullet_list_toggled(self, btn):
         self.is_bullet_list = btn.get_active()
-        print(f"Bullet list toggled to: {self.is_bullet_list}")
         self.apply_list_formatting('unordered', self.is_bullet_list)
         self.webview.grab_focus()
 
     def on_number_list_toggled(self, btn):
         self.is_number_list = btn.get_active()
-        print(f"Number list toggled to: {self.is_number_list}")
         self.apply_list_formatting('ordered', self.is_number_list)
         self.webview.grab_focus()
         
@@ -1271,54 +1312,39 @@ class EditorWindow(Adw.ApplicationWindow):
         file_dialog = Gtk.FileDialog.new()
         filter_store = Gio.ListStore.new(Gtk.FileFilter)
 
-        # Combined filter for all supported files
-        combined_filter = self.create_combined_file_filter()
+        combined_filter = Gtk.FileFilter()
+        combined_filter.set_name("Author Files (*.page, *.html, *.htm)")
+        combined_filter.add_pattern("*.page")
+        combined_filter.add_pattern("*.html")
+        combined_filter.add_pattern("*.htm")
         filter_store.append(combined_filter)
 
-        # Specific filter for .hdoc
-        hdoc_filter = self.create_hdoc_filter()
-        filter_store.append(hdoc_filter)
+        page_filter = Gtk.FileFilter()
+        page_filter.set_name("Page Files (*.page)")
+        page_filter.add_pattern("*.page")
+        filter_store.append(page_filter)
 
-        # Specific filter for .html and .htm
-        html_filter = self.create_html_filter()
+        html_filter = Gtk.FileFilter()
+        html_filter.set_name("HTML Files (*.html, *.htm)")
+        html_filter.add_pattern("*.html")
+        html_filter.add_pattern("*.htm")
         filter_store.append(html_filter)
 
         file_dialog.set_filters(filter_store)
+        file_dialog.set_default_filter(page_filter)
         file_dialog.open(self, None, self.on_open_file_dialog_response)
 
-    def create_combined_file_filter(self):
-        file_filter = Gtk.FileFilter()
-        file_filter.set_name("Author Files (*.hdoc, *.html, *.htm)")
-        file_filter.add_pattern("*.hdoc")
-        file_filter.add_pattern("*.html")
-        file_filter.add_pattern("*.htm")
-        return file_filter
-
-    def create_hdoc_filter(self):
-        file_filter = Gtk.FileFilter()
-        file_filter.set_name("Author Documents (*.hdoc)")
-        file_filter.add_pattern("*.hdoc")
-        return file_filter
-
-    def create_html_filter(self):
-        file_filter = Gtk.FileFilter()
-        file_filter.set_name("HTML Files (*.html, *.htm)")
-        file_filter.add_pattern("*.html")
-        file_filter.add_pattern("*.htm")
-        return file_filter
-    
-    
     def on_open_file_dialog_response(self, dialog, result):
         try:
             file = dialog.open_finish(result)
             if file:
-                # Set current file reference and update title
                 self.current_file = file
                 self.is_new = False
                 self.update_title()
-                
-                # Load file contents
-                file.load_contents_async(None, self.load_callback)
+                if file.get_path().endswith(".page"):
+                    self.load_page_file(file)
+                else:
+                    file.load_contents_async(None, self.load_callback)
         except GLib.Error as e:
             print("Open error:", e.message)
 
@@ -1328,127 +1354,74 @@ class EditorWindow(Adw.ApplicationWindow):
             if ok:
                 self.current_file = file
                 self.is_new = False
-                self.is_modified = False  # Reset modified flag after load
+                self.is_modified = False
                 self.update_title()
                 self.webview.load_html(content.decode(), file.get_uri())
         except GLib.Error as e:
             print("Load error:", e.message)
-    
-    def save_callback(self, dialog, result):
-        """Handle save dialog response"""
-        try:
-            file = dialog.save_finish(result)
-            if file:
-                file_path = file.get_path()
-                print(f"Original file path: {file_path}")
 
-                # Since get_current_filter isn't available, infer extension from file path
-                # or default to .hdoc if no extension is provided
-                if file_path.endswith(".html") or file_path.endswith(".htm"):
-                    new_extension = ".htm"
-                elif file_path.endswith(".hdoc"):
-                    new_extension = ".hdoc"
-                else:
-                    # Default to .hdoc if no recognized extension
-                    new_extension = ".hdoc"
-                    base_path = file_path.rsplit('.', 1)[0] if '.' in file_path else file_path
-                    file_path = base_path + new_extension
-                    file = Gio.File.new_for_path(file_path)
-
-                print(f"New file path: {file_path}")
-
-                self.current_file = file
-                self.is_new = False
-                self.update_title()
-                self.save_to_file(file)
-        except GLib.Error as e:
-            print("Save error:", e.message)
+    def load_page_file(self, file):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with zipfile.ZipFile(file.get_path(), "r") as zf:
+                zf.extractall(temp_dir)
             
-    def save_to_file(self, file):
-        """Perform actual file save operation"""
-        self.webview.evaluate_javascript(
-            "document.documentElement.outerHTML",
-            -1,
-            None,
-            None,
-            None,
-            self.save_html_callback,
-            file
-        )
-
-    def save_html_callback(self, webview, result, file):
-        """Handle HTML content retrieval"""
-        try:
-            js_value = webview.evaluate_javascript_finish(result)
-            if js_value:
-                html = js_value.to_string()
-                file.replace_contents_bytes_async(
-                    GLib.Bytes.new(html.encode()),
-                    None,
-                    False,
-                    Gio.FileCreateFlags.REPLACE_DESTINATION,
-                    None,
-                    self.final_save_callback
-                )
-        except GLib.Error as e:
-            print("HTML save error:", e.message)
-
-    def final_save_callback(self, file, result):
-        """Finalize save operation"""
-        try:
-            file.replace_contents_finish(result)
-            self.is_modified = False  # Reset modified flag after successful save
-            self.update_title()
-            print(f"File successfully saved to: {file.get_path()}")
-        except GLib.Error as e:
-            print("Final save error:", e.message)
+            html_path = os.path.join(temp_dir, "index.html")
+            if os.path.exists(html_path):
+                with open(html_path, "r", encoding="utf-8") as f:
+                    html_content = f.read()
+                
+                html_content = html_content.replace("assets/", f"file://{os.path.join(temp_dir, 'assets')}/")
+                self.webview.load_html(html_content, f"file://{temp_dir}/")
+                self.is_modified = False
+                self.update_title()
+                
+                metadata_path = os.path.join(temp_dir, "metadata.json")
+                if os.path.exists(metadata_path):
+                    with open(metadata_path, "r", encoding="utf-8") as f:
+                        metadata = json.load(f)
+                        if "zoom_level" in metadata:
+                            self.webview.set_zoom_level(metadata["zoom_level"])
 
     def add_css_styles(self):
         provider = Gtk.CssProvider()
         provider.load_from_data(b"window { background-color: @window_bg_color; }")
         Gtk.StyleContext.add_provider_for_display(self.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     
-################ on Close ctrl+w #####################
     def check_save_before_new(self):
-            """Check if document needs saving before creating new document"""
-            if self.is_modified:
-                dialog = Adw.MessageDialog(
-                    transient_for=self,
-                    heading="Save changes?",
-                    body="Do you want to save changes to this document before starting a new one?",
-                    close_response="cancel",
-                    modal=True
-                )
-                dialog.add_response("cancel", "Cancel")
-                dialog.add_response("discard", "Discard")
-                dialog.add_response("save", "Save")
-                dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
-                dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        if self.is_modified:
+            dialog = Adw.MessageDialog(
+                transient_for=self,
+                heading="Save changes?",
+                body="Do you want to save changes to this document before starting a new one?",
+                close_response="cancel",
+                modal=True
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("discard", "Discard")
+            dialog.add_response("save", "Save")
+            dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
 
-                def on_response(dialog, response):
-                    if response == "save":
-                        if self.current_file and not self.is_new:
-                            self.save_to_file(self.current_file)
-                            self.start_new_document()
+            def on_response(dialog, response):
+                if response == "save":
+                    if self.current_file and not self.is_new:
+                        if self.current_file.get_path().endswith(".page"):
+                            self.save_as_page(self.current_file)
                         else:
-                            self.show_save_dialog()
-                    elif response == "discard":
+                            self.save_to_file(self.current_file)
                         self.start_new_document()
-                    dialog.destroy()
+                    else:
+                        self.show_save_dialog()
+                elif response == "discard":
+                    self.start_new_document()
+                dialog.destroy()
 
-                dialog.connect("response", on_response)
-                dialog.present()
-                return True
-            return False
-    def on_close_request(self, *args):
-            """Handle window close request - modified to use new check"""
-            if not self.check_save_before_close():  # Using previous close check
-                self.get_application().quit()
+            dialog.connect("response", on_response)
+            dialog.present()
             return True
+        return False
 
-    # Keep the original close check for window closing
     def check_save_before_close(self):
-        """Check if document needs saving before closing window"""
         if self.is_modified:
             dialog = Adw.MessageDialog(
                 transient_for=self,
@@ -1466,7 +1439,10 @@ class EditorWindow(Adw.ApplicationWindow):
             def on_response(dialog, response):
                 if response == "save":
                     if self.current_file and not self.is_new:
-                        self.save_to_file(self.current_file)
+                        if self.current_file.get_path().endswith(".page"):
+                            self.save_as_page(self.current_file)
+                        else:
+                            self.save_to_file(self.current_file)
                         self.get_application().quit()
                     else:
                         self.show_save_dialog()
@@ -1479,61 +1455,26 @@ class EditorWindow(Adw.ApplicationWindow):
             return True
         return False
     
-    def xshow_save_dialog_for_new(self):
-        """Show save dialog before creating new document"""
-        dialog = Gtk.FileDialog()
-        dialog.set_title("Save")
-
-        if self.current_file and not self.is_new:
-            dialog.set_initial_file(self.current_file)
-        else:
-            dialog.set_initial_name(self.generate_default_name())
-
-        filter_store = Gio.ListStore.new(Gtk.FileFilter)
-        filter_html = Gtk.FileFilter()
-        filter_html.set_name("HTML Files")
-        filter_html.add_pattern("*.html")
-        filter_html.add_pattern("*.htm")
-        filter_store.append(filter_html)
-        dialog.set_filters(filter_store)
-
-        def save_and_new_callback(dialog, result):
-            try:
-                file = dialog.save_finish(result)
-                if file:
-                    self.current_file = file
-                    self.save_to_file(file)
-                    self.start_new_document()
-            except GLib.Error as e:
-                print("Save error:", e.message)
-
-        dialog.save(self, None, save_and_new_callback)
-
     def start_new_document(self):
-            """Start a new document"""
-            self.webview.load_html(self.initial_html, "file:///")
-            self.current_file = None
-            self.is_new = True
-            self.is_modified = False
-            self.document_number = EditorWindow.document_counter
-            EditorWindow.document_counter += 1
-            self.update_title()
+        self.webview.load_html(self.initial_html, "file:///")
+        self.current_file = None
+        self.is_new = True
+        self.is_modified = False
+        self.document_number = EditorWindow.document_counter
+        EditorWindow.document_counter += 1
+        self.update_title()
+
     def on_close_document_clicked(self, btn):
-        """Handle close document button click - starts new document"""
         if not self.check_save_before_new():
             self.start_new_document()
 
     def on_close_request(self, *args):
-            """Handle window close request"""
-            if not self.check_save_before_close():
-                self.get_application().quit()
-            return True
-################ /on Close clicked #####################
-## /check format state of buttons and shortcuts
+        if not self.check_save_before_close():
+            self.get_application().quit()
+        return True
+
     def apply_persistent_formatting(self, format_type, enable):
-        """Apply or remove formatting so that subsequently typed text adopts (or loses) the style."""
-        # Using execCommand for both collapsed and non-collapsed selections.
-        desired = str(enable).lower()  # yields "true" or "false"
+        desired = str(enable).lower()
         script = f"""
             (function() {{
                 let sel = window.getSelection();
@@ -1546,18 +1487,14 @@ class EditorWindow(Adw.ApplicationWindow):
                 }}
                 let cmd = '{format_type}';
                 let currentState = document.queryCommandState(cmd);
-                // Toggle the command if the current state doesn't match the desired state.
                 if (currentState !== {desired}) {{
                     document.execCommand(cmd, false, null);
                 }}
-                console.log('Applied {format_type}: ' + {desired});
             }})();
         """
         self.exec_js(script)
 
-
     def apply_list_formatting(self, list_type, enable):
-        """Apply or remove list formatting."""
         cmd = 'insertUnorderedList' if list_type == 'unordered' else 'insertOrderedList'
         list_tag = 'ul' if list_type == 'unordered' else 'ol'
         script = f"""
@@ -1579,9 +1516,8 @@ class EditorWindow(Adw.ApplicationWindow):
                 if (isEnabled && !currentList) {{
                     document.execCommand('{cmd}', false, null);
                 }} else if (!isEnabled && currentList) {{
-                    document.execCommand('{cmd}', false, null); // Toggle off
+                    document.execCommand('{cmd}', false, null);
                 }}
-                console.log('Applied {list_type} list: ' + isEnabled + ', In List: ' + !!currentList);
             }})();
         """
         self.exec_js(script)
@@ -1591,8 +1527,8 @@ class EditorWindow(Adw.ApplicationWindow):
         elif list_type == 'ordered' and enable:
             self.is_bullet_list = False
             self.bullet_btn.set_active(False)
+
     def update_formatting_state(self):
-        """Update toggle buttons based on current formatting state at cursor, using computed styles."""
         script = """
             (function() {
                 let sel = window.getSelection();
@@ -1617,12 +1553,12 @@ class EditorWindow(Adw.ApplicationWindow):
             })();
         """
         self.webview.evaluate_javascript(script, -1, None, None, None, self.on_formatting_state_received, None)
+
     def on_formatting_state_received(self, webview, result, user_data):
         try:
             js_value = webview.evaluate_javascript_finish(result)
             if js_value and js_value.is_string():
                 states = json.loads(js_value.to_string())
-                # Update button states only if they differ from user intent
                 if states.get('bold', False) != self.is_bold:
                     self.is_bold = states['bold']
                     self.bold_btn.set_active(self.is_bold)
@@ -1655,9 +1591,6 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_justify_btn.set_active(self.is_align_justify)
         except Exception as e:
             print(f"Error updating formatting state: {e}")
-## /check format state of buttons and shortcuts
-
-
 
 if __name__ == "__main__":
     app = Author()
