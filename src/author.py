@@ -3,14 +3,13 @@
 import os
 import gi
 import json
-import zipfile
 import base64
 import re
 import shutil
 import tempfile
 from urllib.parse import urlparse
 from datetime import datetime
-import markdown  # Added for Markdown support
+import markdown
 
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -29,13 +28,13 @@ class Author(Adw.Application):
         win.present()
 
 class EditorWindow(Adw.ApplicationWindow):
-    document_counter = 1 
+    document_counter = 1
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.set_title("Author")
         self.set_default_size(1000, 700)
         self.add_css_styles()
-        
+
         # State tracking for formatting
         self.is_bold = False
         self.is_italic = False
@@ -43,12 +42,12 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_strikethrough = False
         self.is_bullet_list = False
         self.is_number_list = False
-        self.is_align_left = True  # Default alignment
+        self.is_align_left = True
         self.is_align_center = False
         self.is_align_right = False
         self.is_align_justify = False
 
-        # Initialize document state
+        # Document state
         self.current_file = None
         self.is_new = True
         self.is_modified = False
@@ -58,77 +57,32 @@ class EditorWindow(Adw.ApplicationWindow):
 
         scroll = Gtk.ScrolledWindow(vexpand=True)
         self.webview = WebKit.WebView(editable=True)
-        
-        # Register the script message handler for content changes
+
+        # Register content change handler
         user_content = self.webview.get_user_content_manager()
         user_content.register_script_message_handler('contentChanged')
         user_content.connect('script-message-received::contentChanged', self.on_content_changed_js)
-        
+
         self.webview.connect('load-changed', self.on_webview_load)
+
         # CSS Provider
         self.css_provider = Gtk.CssProvider()
         self.css_provider.load_from_data(b"""
-            .toolbar-container {
-                padding: 6px 6px;
-                background-color: rgba(127, 127, 127, 0.05);
-            }
-            .flat {
-                background: none;
-            }
-            .flat:hover {
-                background: rgba(127, 127, 127, 0.25);
-            }
-            .flat:checked {
-                background: rgba(127, 127, 127, 0.25);
-            }
-            colorbutton.flat, 
-            colorbutton.flat button {
-                background: none;
-            }
-            colorbutton.flat:hover, 
-            colorbutton.flat button:hover {
-                background: rgba(127, 127, 127, 0.25);
-            }
-            dropdown.flat,
-            dropdown.flat button {
-                background: none;
-                border-radius: 5px;
-            }
-            dropdown.flat:hover {
-                background: rgba(127, 127, 127, 0.25);
-            }
-            .flat-header {
-                background: rgba(127, 127, 127, 0.05);
-                border: none;
-                box-shadow: none;
-                padding: 0px;
-            }
-            .button-box button {
-                min-width: 80px;
-                min-height: 36px;
-            }
-            .highlighted {
-                background-color: rgba(127, 127, 127, 0.15);
-            }
-            .toolbar-group {
-                margin: 0px 3px;
-            }
-            .toolbar-separator {
-                min-height: 16px;
-                min-width: 1px;
-                background-color: alpha(currentColor, 0.15);
-                margin: 10px 6px;
-            }
-            .color-indicator {
-                min-height: 3px;
-                min-width: 16px;
-                margin-top: 1px;
-                margin-bottom: 0px;
-                border-radius: 2px;
-            }
-            .color-box {
-                padding: 0px;
-            }
+            .toolbar-container { padding: 6px 6px; background-color: rgba(127, 127, 127, 0.05); }
+            .flat { background: none; }
+            .flat:hover { background: rgba(127, 127, 127, 0.25); }
+            .flat:checked { background: rgba(127, 127, 127, 0.25); }
+            colorbutton.flat, colorbutton.flat button { background: none; }
+            colorbutton.flat:hover, colorbutton.flat button:hover { background: rgba(127, 127, 127, 0.25); }
+            dropdown.flat, dropdown.flat button { background: none; border-radius: 5px; }
+            dropdown.flat:hover { background: rgba(127, 127, 127, 0.25); }
+            .flat-header { background: rgba(127, 127, 127, 0.05); border: none; box-shadow: none; padding: 0px; }
+            .button-box button { min-width: 80px; min-height: 36px; }
+            .highlighted { background-color: rgba(127, 127, 127, 0.15); }
+            .toolbar-group { margin: 0px 3px; }
+            .toolbar-separator { min-height: 16px; min-width: 1px; background-color: alpha(currentColor, 0.15); margin: 10px 6px; }
+            .color-indicator { min-height: 3px; min-width: 16px; margin-top: 1px; margin-bottom: 0px; border-radius: 2px; }
+            .color-box { padding: 0px; }
         """)
 
         Gtk.StyleContext.add_provider_for_display(
@@ -148,7 +102,7 @@ class EditorWindow(Adw.ApplicationWindow):
         img { max-width: 100%; resize: both; }
     </style>
 </head>
-<body><p> </p></body>
+<body><p> </p></body>
 </html>"""
 
         # Main layout
@@ -188,7 +142,6 @@ class EditorWindow(Adw.ApplicationWindow):
         color_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         color_group.add_css_class("toolbar-group")
 
-        # Higher-level toolbar groups
         file_toolbar_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=15)
         file_toolbar_group.add_css_class("toolbar-group-container")
         file_toolbar_group.append(file_group)
@@ -211,7 +164,6 @@ class EditorWindow(Adw.ApplicationWindow):
         toolbars_flowbox.insert(file_toolbar_group, -1)
         toolbars_flowbox.insert(formatting_toolbar_group, -1)
 
-        # Add scroll controller for zooming
         scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
         scroll_controller.connect("scroll", self.on_scroll)
         self.webview.add_controller(scroll_controller)
@@ -224,7 +176,7 @@ class EditorWindow(Adw.ApplicationWindow):
 
         self.webview.load_html(self.initial_html, "file:///")
 
-        # Populate file group
+        # Populate toolbar buttons
         for icon, handler in [
             ("document-new", self.on_new_clicked),
             ("document-open", self.on_open_clicked),
@@ -237,7 +189,6 @@ class EditorWindow(Adw.ApplicationWindow):
             btn.connect("clicked", handler)
             file_group.append(btn)
 
-        # Populate edit group
         for icon, handler in [
             ("edit-cut", self.on_cut_clicked),
             ("edit-copy", self.on_copy_clicked),
@@ -250,7 +201,6 @@ class EditorWindow(Adw.ApplicationWindow):
             btn.connect("clicked", handler)
             edit_group.append(btn)
 
-        # Populate view group
         for icon, handler in [
             ("edit-find", self.on_find_clicked),
             ("edit-find-replace", self.on_replace_clicked)
@@ -274,7 +224,6 @@ class EditorWindow(Adw.ApplicationWindow):
         self.dark_mode_btn.add_css_class("flat")
         view_group.append(self.dark_mode_btn)
 
-        # Populate text style group
         heading_store = Gtk.StringList()
         for h in ["Normal", "H1", "H2", "H3", "H4", "H5", "H6"]:
             heading_store.append(h)
@@ -305,7 +254,6 @@ class EditorWindow(Adw.ApplicationWindow):
         self.size_dropdown.add_css_class("flat")
         text_style_group.append(self.size_dropdown)
 
-        # Populate text format group
         self.bold_btn = Gtk.ToggleButton(icon_name="format-text-bold")
         self.bold_btn.add_css_class("flat")
         self.bold_btn.connect("toggled", self.on_bold_toggled)
@@ -326,7 +274,6 @@ class EditorWindow(Adw.ApplicationWindow):
         self.strikethrough_btn.connect("toggled", self.on_strikethrough_toggled)
         text_format_group.append(self.strikethrough_btn)
 
-        # Populate align group
         self.align_left_btn = Gtk.ToggleButton(icon_name="format-justify-left")
         self.align_left_btn.add_css_class("flat")
         self.align_left_btn.connect("toggled", self.on_align_left)
@@ -347,10 +294,8 @@ class EditorWindow(Adw.ApplicationWindow):
         self.align_justify_btn.connect("toggled", self.on_align_justify)
         align_group.append(self.align_justify_btn)
 
-        # Set default alignment to left
         self.align_left_btn.set_active(True)
 
-        # Populate list group
         self.bullet_btn = Gtk.ToggleButton(icon_name="view-list-bullet")
         self.bullet_btn.connect("toggled", self.on_bullet_list_toggled)
         self.bullet_btn.add_css_class("flat")
@@ -370,7 +315,6 @@ class EditorWindow(Adw.ApplicationWindow):
             btn.add_css_class("flat")
             list_group.append(btn)
 
-        # Populate color group
         text_color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         text_color_box.set_valign(Gtk.Align.CENTER)
         text_color_box.add_css_class("color-box")
@@ -403,11 +347,9 @@ class EditorWindow(Adw.ApplicationWindow):
         bg_color_btn.connect("clicked", self.on_bg_color_clicked)
         color_group.append(bg_color_btn)
 
-        # Initialize colors
         self.current_text_color = Gdk.RGBA()
         self.current_bg_color = Gdk.RGBA()
 
-        # Add key event controller to WebView instead of window
         key_controller = Gtk.EventControllerKey.new()
         self.webview.add_controller(key_controller)
         key_controller.connect("key-pressed", self.on_key_pressed)
@@ -419,9 +361,9 @@ class EditorWindow(Adw.ApplicationWindow):
         state = controller.get_current_event_state()
         ctrl_pressed = (state & Gdk.ModifierType.CONTROL_MASK) != 0
         if ctrl_pressed:
-            if dy < 0:  # Scroll up (zoom in)
+            if dy < 0:
                 self.adjust_zoom_level(0.1)
-            elif dy > 0:  # Scroll down (zoom out)
+            elif dy > 0:
                 self.adjust_zoom_level(-0.1)
             return True
         return False
@@ -442,14 +384,10 @@ class EditorWindow(Adw.ApplicationWindow):
                 else:
                     self.is_modified = True
                     self.update_title()
-            else:
-                self.is_modified = True
-                self.update_title()
         except Exception as e:
             print(f"Error in on_content_changed_js: {e}")
             self.is_modified = True
             self.update_title()
-
 
     def adjust_zoom_level(self, delta):
         current = self.webview.get_zoom_level()
@@ -653,10 +591,7 @@ class EditorWindow(Adw.ApplicationWindow):
                     style.id = 'dynamic-theme-style';
                     style.textContent = `
                         @media screen {
-                            body { 
-                                background-color: #242424 !important; 
-                                color: #e0e0e0 !important; 
-                            }
+                            body { background-color: #242424 !important; color: #e0e0e0 !important; }
                         }
                     `;
                     document.head.appendChild(style);
@@ -691,7 +626,6 @@ class EditorWindow(Adw.ApplicationWindow):
             self.webview.evaluate_javascript(cursor_script, -1, None, None, None, None, None)
             GLib.idle_add(self.webview.grab_focus)
 
-            # Modified change detection: only notify if content truly changes.
             change_detection_script = """
                 (function() {
                     let lastContent = document.body.innerHTML;
@@ -739,7 +673,7 @@ class EditorWindow(Adw.ApplicationWindow):
                     })();
                 """
                 self.exec_js(dark_mode_script)
-                
+
             selection_script = """
                 (function() {
                     document.addEventListener('selectionchange', () => {
@@ -750,8 +684,8 @@ class EditorWindow(Adw.ApplicationWindow):
             self.webview.evaluate_javascript(selection_script, -1, None, None, None, None, None)
 
     def exec_js(self, script, callback=None):
-        self.webview.evaluate_javascript(script, -1, None, None, None, 
-                                   callback or self.on_js_executed, None)
+        self.webview.evaluate_javascript(script, -1, None, None, None,
+                                        callback or self.on_js_executed, None)
 
     def on_js_executed(self, webview, result, user_data):
         try:
@@ -762,9 +696,9 @@ class EditorWindow(Adw.ApplicationWindow):
             print(f"JS Execution Error: {e}")
         self.webview.grab_focus()
 
-    def on_open_clicked(self, btn): 
+    def on_open_clicked(self, btn):
         self.open_file_dialog()
-    
+
     def update_title(self):
         modified_marker = "⃰" if self.is_modified else ""
         if self.current_file and not self.is_new:
@@ -773,13 +707,18 @@ class EditorWindow(Adw.ApplicationWindow):
         else:
             title = f"{modified_marker}Document {self.document_number} – Author"
         self.set_title(title)
-    
+
     def on_save_clicked(self, btn):
         if self.current_file and not self.is_new:
-            if self.current_file.get_path().endswith(".page"):
-                self.save_as_page(self.current_file)
+            file_path = self.current_file.get_path()
+            if file_path.endswith(".mhtml"):
+                self.save_as_mhtml(self.current_file)
+            elif file_path.endswith(".html") or file_path.endswith(".htm"):
+                self.save_as_html(self.current_file)
+            elif file_path.endswith(".txt"):
+                self.save_as_txt(self.current_file)
             else:
-                self.save_to_file(self.current_file)
+                self.show_save_dialog()
         else:
             self.show_save_dialog()
 
@@ -796,7 +735,7 @@ class EditorWindow(Adw.ApplicationWindow):
 
     def on_save_as_clicked(self, btn):
         self.show_save_dialog(is_save_as=True)
-    
+
     def show_save_dialog(self, is_save_as=False):
         dialog = Gtk.FileDialog()
         dialog.set_title("Save As" if is_save_as else "Save")
@@ -806,18 +745,11 @@ class EditorWindow(Adw.ApplicationWindow):
             dialog.set_initial_name(self.generate_default_name())
 
         filter_store = Gio.ListStore.new(Gtk.FileFilter)
-        
-        file_filter_combined = Gtk.FileFilter()
-        file_filter_combined.set_name("Author Files (*.page, *.html, *.htm)")
-        file_filter_combined.add_pattern("*.page")
-        file_filter_combined.add_pattern("*.html")
-        file_filter_combined.add_pattern("*.htm")
-        filter_store.append(file_filter_combined)
 
-        filter_page = Gtk.FileFilter()
-        filter_page.set_name("Page Files (*.page)")
-        filter_page.add_pattern("*.page")
-        filter_store.append(filter_page)
+        filter_mhtml = Gtk.FileFilter()
+        filter_mhtml.set_name("MHTML Files (*.mhtml)")
+        filter_mhtml.add_pattern("*.mhtml")
+        filter_store.append(filter_mhtml)
 
         filter_html = Gtk.FileFilter()
         filter_html.set_name("HTML Files (*.html, *.htm)")
@@ -825,13 +757,26 @@ class EditorWindow(Adw.ApplicationWindow):
         filter_html.add_pattern("*.htm")
         filter_store.append(filter_html)
 
+        filter_txt = Gtk.FileFilter()
+        filter_txt.set_name("Text Files (*.txt)")
+        filter_txt.add_pattern("*.txt")
+        filter_store.append(filter_txt)
+
+        filter_all = Gtk.FileFilter()
+        filter_all.set_name("All Supported Files")
+        filter_all.add_pattern("*.mhtml")
+        filter_all.add_pattern("*.html")
+        filter_all.add_pattern("*.htm")
+        filter_all.add_pattern("*.txt")
+        filter_store.append(filter_all)
+
         dialog.set_filters(filter_store)
-        dialog.set_default_filter(filter_page)
+        dialog.set_default_filter(filter_mhtml)
         dialog.save(self, None, self.save_callback)
 
     def generate_default_name(self):
         current_date = datetime.now().strftime("%Y-%m-%d")
-        return f"Document {self.document_number} - {current_date}.page"
+        return f"Document {self.document_number} - {current_date}.mhtml"
 
     def save_callback(self, dialog, result):
         try:
@@ -840,33 +785,28 @@ class EditorWindow(Adw.ApplicationWindow):
                 file_path = file.get_path()
                 print(f"Original file path: {file_path}")
 
-                if file_path.endswith(".page"):
-                    new_extension = ".page"
+                if file_path.endswith(".mhtml"):
+                    self.save_as_mhtml(file)
                 elif file_path.endswith(".html") or file_path.endswith(".htm"):
-                    new_extension = ".htm"
+                    self.save_as_html(file)
+                elif file_path.endswith(".txt"):
+                    self.save_as_txt(file)
                 else:
-                    new_extension = ".page"
-                    base_path = file_path.rsplit('.', 1)[0] if '.' in file_path else file_path
-                    file_path = base_path + new_extension
-                    file = Gio.File.new_for_path(file_path)
+                    new_path = file_path + ".mhtml"
+                    file = Gio.File.new_for_path(new_path)
+                    self.save_as_mhtml(file)
 
-                print(f"New file path: {file_path}")
                 self.current_file = file
                 self.is_new = False
                 self.update_title()
 
-                if new_extension == ".page":
-                    self.save_as_page(file)
-                else:
-                    self.save_to_file(file)
-
-                if getattr(self, '_new_document_after_save', False):
-                    self.start_new_document()
-                    self._new_document_after_save = False
         except GLib.Error as e:
             print("Save error:", e.message)
 
-    def save_to_file(self, file):
+    def save_as_mhtml(self, file):
+        self.webview.save_to_file(file, WebKit.SaveMode.MHTML, None, self.final_save_callback, None)
+
+    def save_as_html(self, file):
         self.webview.evaluate_javascript(
             "document.documentElement.outerHTML",
             -1,
@@ -893,126 +833,32 @@ class EditorWindow(Adw.ApplicationWindow):
         except GLib.Error as e:
             print("HTML save error:", e.message)
 
-    def save_as_page(self, file):
+    def save_as_txt(self, file):
         self.webview.evaluate_javascript(
-            "document.documentElement.outerHTML",
+            "document.body.textContent",
             -1,
             None,
             None,
             None,
-            self.save_page_callback,
+            self.save_txt_callback,
             file
         )
 
-    def save_page_callback(self, webview, result, file):
+    def save_txt_callback(self, webview, result, file):
         try:
             js_value = webview.evaluate_javascript_finish(result)
             if js_value:
-                html_content = js_value.to_string()
-
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    html_path = os.path.join(temp_dir, "index.html")
-                    assets_dir = os.path.join(temp_dir, "assets")
-                    os.makedirs(assets_dir, exist_ok=True)
-
-                    html_content = self.process_images(html_content, assets_dir)
-
-                    with open(html_path, "w", encoding="utf-8") as f:
-                        f.write(html_content)
-
-                    metadata = {
-                        "zoom_level": self.webview.get_zoom_level(),
-                        "document_number": self.document_number,
-                        "created": datetime.now().isoformat()
-                    }
-                    metadata_path = os.path.join(temp_dir, "metadata.json")
-                    with open(metadata_path, "w", encoding="utf-8") as f:
-                        json.dump(metadata, f)
-
-                    zip_path = file.get_path()
-                    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                        zf.write(html_path, "index.html")
-                        zf.write(metadata_path, "metadata.json")
-                        for root, _, files in os.walk(assets_dir):
-                            for asset in files:
-                                asset_path = os.path.join(root, asset)
-                                zf.write(asset_path, os.path.join("assets", asset))
-
-                self.is_modified = False
-                self.update_title()
-                print(f"Saved as .page to: {zip_path}")
+                text = js_value.to_string()
+                file.replace_contents_bytes_async(
+                    GLib.Bytes.new(text.encode()),
+                    None,
+                    False,
+                    Gio.FileCreateFlags.REPLACE_DESTINATION,
+                    None,
+                    self.final_save_callback
+                )
         except GLib.Error as e:
-            print("Page save error:", e.message)
-
-    def process_images(self, html_content, assets_dir):
-        img_pattern = r'<img[^>]+src=["\'](.*?)["\']'
-        matches = re.findall(img_pattern, html_content)
-
-        for i, src in enumerate(matches):
-            if src.startswith("data:image"):
-                try:
-                    header, data = src.split(",", 1)
-                    mime_type = header.split(";")[0].replace("data:", "")
-                    ext = mime_type.split("/")[1]
-                    img_data = base64.b64decode(data)
-                    img_name = f"image_{i}.{ext}"
-                    img_path = os.path.join(assets_dir, img_name)
-                    with open(img_path, "wb") as f:
-                        f.write(img_data)
-                    html_content = html_content.replace(src, f"assets/{img_name}")
-                except Exception as e:
-                    print(f"Error processing image {i}: {e}")
-            elif src.startswith("file:///"):
-                try:
-                    parsed = urlparse(src)
-                    local_path = parsed.path
-                    if os.path.exists(local_path):
-                        img_name = f"image_{i}{os.path.splitext(local_path)[1]}"
-                        img_path = os.path.join(assets_dir, img_name)
-                        shutil.copy(local_path, img_path)
-                        html_content = html_content.replace(src, f"assets/{img_name}")
-                except Exception as e:
-                    print(f"Error copying image {i}: {e}")
-
-        return html_content
-
-    def process_markdown_images(self, md_content, base_dir, temp_assets_dir):
-        """Process Markdown images and copy them to a temporary assets directory."""
-        img_pattern = r'!\[.*?\]\((.*?)\)'
-        matches = re.findall(img_pattern, md_content)
-        
-        for i, src in enumerate(matches):
-            if src.startswith("http://") or src.startswith("https://"):
-                # Leave remote URLs as-is
-                continue
-            elif src.startswith("data:image"):
-                try:
-                    header, data = src.split(",", 1)
-                    mime_type = header.split(";")[0].replace("data:", "")
-                    ext = mime_type.split("/")[1]
-                    img_data = base64.b64decode(data)
-                    img_name = f"image_{i}.{ext}"
-                    img_path = os.path.join(temp_assets_dir, img_name)
-                    with open(img_path, "wb") as f:
-                        f.write(img_data)
-                    md_content = md_content.replace(src, f"assets/{img_name}")
-                except Exception as e:
-                    print(f"Error processing Markdown base64 image {i}: {e}")
-            else:
-                # Handle local file paths
-                try:
-                    abs_path = os.path.join(base_dir, src)
-                    if os.path.exists(abs_path):
-                        img_name = f"image_{i}{os.path.splitext(abs_path)[1]}"
-                        img_path = os.path.join(temp_assets_dir, img_name)
-                        shutil.copy(abs_path, img_path)
-                        md_content = md_content.replace(src, f"assets/{img_name}")
-                    else:
-                        print(f"Markdown image not found: {abs_path}")
-                except Exception as e:
-                    print(f"Error copying Markdown image {i}: {e}")
-        
-        return md_content
+            print("Text save error:", e.message)
 
     def final_save_callback(self, file, result):
         try:
@@ -1026,8 +872,8 @@ class EditorWindow(Adw.ApplicationWindow):
     def on_print_clicked(self, btn):
         print_operation = WebKit.PrintOperation.new(self.webview)
         print_operation.run_dialog(self)
-    
-    def on_cut_clicked(self, btn): 
+
+    def on_cut_clicked(self, btn):
         self.exec_js("""
             (function() {
                 let sel = window.getSelection();
@@ -1041,14 +887,14 @@ class EditorWindow(Adw.ApplicationWindow):
                 }
             })();
         """)
-    
-    def on_copy_clicked(self, btn): 
+
+    def on_copy_clicked(self, btn):
         self.exec_js("document.execCommand('copy')")
-    
+
     def on_paste_clicked(self, btn):
         clipboard = Gdk.Display.get_default().get_clipboard()
         clipboard.read_text_async(None, self.on_text_received, None)
-    
+
     def on_text_received(self, clipboard, result, user_data):
         try:
             text = clipboard.read_text_finish(result)
@@ -1057,13 +903,13 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.exec_js(f"document.execCommand('insertText', false, {text_json})")
         except GLib.Error as e:
             print("Paste error:", e.message)
-    
-    def on_undo_clicked(self, btn): 
+
+    def on_undo_clicked(self, btn):
         self.exec_js("document.execCommand('undo')")
-    
-    def on_redo_clicked(self, btn): 
+
+    def on_redo_clicked(self, btn):
         self.exec_js("document.execCommand('redo')")
-    
+
     def on_find_clicked(self, btn):
         dialog = Adw.MessageDialog(
             transient_for=self,
@@ -1077,7 +923,7 @@ class EditorWindow(Adw.ApplicationWindow):
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("find", "Find")
         dialog.set_response_appearance("find", Adw.ResponseAppearance.SUGGESTED)
-        
+
         def on_response(dialog, response):
             if response == "find":
                 search_term = entry.get_text()
@@ -1145,10 +991,10 @@ class EditorWindow(Adw.ApplicationWindow):
                     print(f"Executing find script for term: '{search_term}'")
                     self.exec_js(script)
             dialog.destroy()
-        
+
         dialog.connect("response", on_response)
         dialog.present()
-    
+
     def on_replace_clicked(self, btn):
         dialog = Adw.MessageDialog(
             transient_for=self,
@@ -1166,7 +1012,7 @@ class EditorWindow(Adw.ApplicationWindow):
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("replace", "Replace All")
         dialog.set_response_appearance("replace", Adw.ResponseAppearance.SUGGESTED)
-        
+
         def on_response(dialog, response):
             if response == "replace":
                 search = search_entry.get_text()
@@ -1182,10 +1028,10 @@ class EditorWindow(Adw.ApplicationWindow):
                     """
                     self.exec_js(script)
             dialog.destroy()
-        
+
         dialog.connect("response", on_response)
         dialog.present()
-    
+
     def on_zoom_changed(self, dropdown, *args):
         selected_item = dropdown.get_selected_item()
         if selected_item:
@@ -1194,7 +1040,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.webview.set_zoom_level(zoom_level)
             except ValueError:
                 pass
-    
+
     def on_bold_toggled(self, btn):
         self.is_bold = btn.get_active()
         self.apply_persistent_formatting('bold', self.is_bold)
@@ -1224,13 +1070,13 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_number_list = btn.get_active()
         self.apply_list_formatting('ordered', self.is_number_list)
         self.webview.grab_focus()
-        
+
     def on_heading_changed(self, dropdown, *args):
         headings = ["div", "h1", "h2", "h3", "h4", "h5", "h6"]
         selected = dropdown.get_selected()
         if 0 <= selected < len(headings):
             self.exec_js(f"document.execCommand('formatBlock', false, '{headings[selected]}')")
-    
+
     def on_align_left(self, btn):
         if btn.get_active():
             self.is_align_left = True
@@ -1270,13 +1116,13 @@ class EditorWindow(Adw.ApplicationWindow):
             self.align_right_btn.set_active(False)
             self.exec_js("document.execCommand('justifyFull')")
             self.webview.grab_focus()
-    
-    def on_indent_more(self, *args): 
+
+    def on_indent_more(self, *args):
         self.exec_js("document.execCommand('indent')")
-    
-    def on_indent_less(self, *args): 
+
+    def on_indent_less(self, *args):
         self.exec_js("document.execCommand('outdent')")
-    
+
     def on_font_family_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
             font_family = item.get_string()
@@ -1322,7 +1168,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 })();
             """
             self.exec_js(script)
-    
+
     def on_font_size_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
             size_pt = item.get_string()
@@ -1354,23 +1200,24 @@ class EditorWindow(Adw.ApplicationWindow):
                 })();
             """
             self.exec_js(script)
-    
+
     def open_file_dialog(self):
         file_dialog = Gtk.FileDialog.new()
         filter_store = Gio.ListStore.new(Gtk.FileFilter)
 
         combined_filter = Gtk.FileFilter()
-        combined_filter.set_name("Supported Files (*.page, *.html, *.htm, *.md)")
-        combined_filter.add_pattern("*.page")
+        combined_filter.set_name("Supported Files (*.mhtml, *.html, *.htm, *.md, *.txt)")
+        combined_filter.add_pattern("*.mhtml")
         combined_filter.add_pattern("*.html")
         combined_filter.add_pattern("*.htm")
         combined_filter.add_pattern("*.md")
+        combined_filter.add_pattern("*.txt")
         filter_store.append(combined_filter)
 
-        page_filter = Gtk.FileFilter()
-        page_filter.set_name("Page Files (*.page)")
-        page_filter.add_pattern("*.page")
-        filter_store.append(page_filter)
+        mhtml_filter = Gtk.FileFilter()
+        mhtml_filter.set_name("MHTML Files (*.mhtml)")
+        mhtml_filter.add_pattern("*.mhtml")
+        filter_store.append(mhtml_filter)
 
         html_filter = Gtk.FileFilter()
         html_filter.set_name("HTML Files (*.html, *.htm)")
@@ -1382,6 +1229,11 @@ class EditorWindow(Adw.ApplicationWindow):
         md_filter.set_name("Markdown Files (*.md)")
         md_filter.add_pattern("*.md")
         filter_store.append(md_filter)
+
+        txt_filter = Gtk.FileFilter()
+        txt_filter.set_name("Text Files (*.txt)")
+        txt_filter.add_pattern("*.txt")
+        filter_store.append(txt_filter)
 
         file_dialog.set_filters(filter_store)
         file_dialog.set_default_filter(combined_filter)
@@ -1395,49 +1247,30 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.is_new = False
                 self.update_title()
                 file_path = file.get_path()
-                if file_path.endswith(".page"):
-                    self.load_page_file(file)
+                if file_path.endswith(".mhtml"):
+                    self.webview.load_uri(file.get_uri())
+                elif file_path.endswith(".html") or file_path.endswith(".htm"):
+                    file.load_contents_async(None, self.load_html_callback)
                 elif file_path.endswith(".md"):
                     self.load_markdown_file(file)
+                elif file_path.endswith(".txt"):
+                    self.load_txt_file(file)
                 else:
-                    file.load_contents_async(None, self.load_callback)
+                    print("Unsupported file type")
         except GLib.Error as e:
             print("Open error:", e.message)
 
-    def load_callback(self, file, result):
+    def load_html_callback(self, file, result):
         try:
             ok, content, _ = file.load_contents_finish(result)
             if ok:
-                self.current_file = file
-                self.is_new = False
                 self.ignore_changes = True
-                self.is_modified = False
-                self.update_title()
                 self.webview.load_html(content.decode(), file.get_uri())
                 GLib.timeout_add(500, self.clear_ignore_changes)
-        except GLib.Error as e:
-            print("Load error:", e.message)
-
-    def load_page_file(self, file):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with zipfile.ZipFile(file.get_path(), "r") as zf:
-                zf.extractall(temp_dir)
-            html_path = os.path.join(temp_dir, "index.html")
-            if os.path.exists(html_path):
-                with open(html_path, "r", encoding="utf-8") as f:
-                    html_content = f.read()
-                html_content = html_content.replace("assets/", f"file://{os.path.join(temp_dir, 'assets')}/")
-                self.ignore_changes = True
-                self.webview.load_html(html_content, f"file://{temp_dir}/")
-                GLib.timeout_add(500, self.clear_ignore_changes)
                 self.is_modified = False
                 self.update_title()
-                metadata_path = os.path.join(temp_dir, "metadata.json")
-                if os.path.exists(metadata_path):
-                    with open(metadata_path, "r", encoding="utf-8") as f:
-                        metadata = json.load(f)
-                        if "zoom_level" in metadata:
-                            self.webview.set_zoom_level(metadata["zoom_level"])
+        except GLib.Error as e:
+            print("Load error:", e.message)
 
     def load_markdown_file(self, file):
         try:
@@ -1450,19 +1283,19 @@ class EditorWindow(Adw.ApplicationWindow):
                 md_content = self.process_markdown_images(md_content, base_dir, assets_dir)
                 html_body = markdown.markdown(md_content, extensions=['extra', 'codehilite'])
                 html_content = f"""<!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {{ font-family: sans-serif; font-size: 11pt; margin: 20px; line-height: 1.5; }}
-            @media (prefers-color-scheme: dark) {{ body {{ background-color: #121212; color: #e0e0e0; }} }}
-            @media (prefers-color-scheme: light) {{ body {{ background-color: #ffffff; color: #000000; }} }}
-            img {{ max-width: 100%; resize: both; }}
-            pre {{ background-color: #f4f4f4; padding: 10px; border-radius: 5px; }}
-            code {{ background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; }}
-        </style>
-    </head>
-    <body>{html_body}</body>
-    </html>"""
+<html>
+<head>
+    <style>
+        body {{ font-family: sans-serif; font-size: 11pt; margin: 20px; line-height: 1.5; }}
+        @media (prefers-color-scheme: dark) {{ body {{ background-color: #121212; color: #e0e0e0; }} }}
+        @media (prefers-color-scheme: light) {{ body {{ background-color: #ffffff; color: #000000; }} }}
+        img {{ max-width: 100%; resize: both; }}
+        pre {{ background-color: #f4f4f4; padding: 10px; border-radius: 5px; }}
+        code {{ background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; }}
+    </style>
+</head>
+<body>{html_body}</body>
+</html>"""
                 html_content = html_content.replace("assets/", f"file://{assets_dir}/")
                 self.ignore_changes = True
                 self.webview.load_html(html_content, f"file://{temp_dir}/")
@@ -1472,16 +1305,74 @@ class EditorWindow(Adw.ApplicationWindow):
                 print(f"Loaded Markdown file: {file.get_path()}")
         except Exception as e:
             print(f"Error loading Markdown file: {e}")
-    
+
+    def load_txt_file(self, file):
+        try:
+            with open(file.get_path(), 'r', encoding='utf-8') as f:
+                text = f.read()
+            html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: sans-serif; font-size: 11pt; margin: 20px; line-height: 1.5; }}
+        @media (prefers-color-scheme: dark) {{ body {{ background-color: #121212; color: #e0e0e0; }} }}
+        @media (prefers-color-scheme: light) {{ body {{ background-color: #ffffff; color: #000000; }} }}
+    </style>
+</head>
+<body><pre>{text}</pre></body>
+</html>"""
+            self.ignore_changes = True
+            self.webview.load_html(html_content, file.get_uri())
+            GLib.timeout_add(500, self.clear_ignore_changes)
+            self.is_modified = False
+            self.update_title()
+        except Exception as e:
+            print(f"Error loading text file: {e}")
+
+    def process_markdown_images(self, md_content, base_dir, temp_assets_dir):
+        img_pattern = r'!\[.*?\]\((.*?)\)'
+        matches = re.findall(img_pattern, md_content)
+        
+        for i, src in enumerate(matches):
+            if src.startswith("http://") or src.startswith("https://"):
+                continue
+            elif src.startswith("data:image"):
+                try:
+                    header, data = src.split(",", 1)
+                    mime_type = header.split(";")[0].replace("data:", "")
+                    ext = mime_type.split("/")[1]
+                    img_data = base64.b64decode(data)
+                    img_name = f"image_{i}.{ext}"
+                    img_path = os.path.join(temp_assets_dir, img_name)
+                    with open(img_path, "wb") as f:
+                        f.write(img_data)
+                    md_content = md_content.replace(src, f"assets/{img_name}")
+                except Exception as e:
+                    print(f"Error processing Markdown base64 image {i}: {e}")
+            else:
+                try:
+                    abs_path = os.path.join(base_dir, src)
+                    if os.path.exists(abs_path):
+                        img_name = f"image_{i}{os.path.splitext(abs_path)[1]}"
+                        img_path = os.path.join(temp_assets_dir, img_name)
+                        shutil.copy(abs_path, img_path)
+                        md_content = md_content.replace(src, f"assets/{img_name}")
+                    else:
+                        print(f"Markdown image not found: {abs_path}")
+                except Exception as e:
+                    print(f"Error copying Markdown image {i}: {e}")
+        
+        return md_content
+
     def clear_ignore_changes(self):
         self.ignore_changes = False
         return False
-    
+
     def add_css_styles(self):
         provider = Gtk.CssProvider()
         provider.load_from_data(b"window { background-color: @window_bg_color; }")
         Gtk.StyleContext.add_provider_for_display(self.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-    
+
     def check_save_before_new(self):
         if self.is_modified:
             dialog = Adw.MessageDialog(
@@ -1500,14 +1391,15 @@ class EditorWindow(Adw.ApplicationWindow):
             def on_response(dialog, response):
                 if response == "save":
                     if self.current_file and not self.is_new:
-                        if self.current_file.get_path().endswith(".page"):
-                            self.save_as_page(self.current_file)
-                        else:
-                            self.save_to_file(self.current_file)
+                        file_path = self.current_file.get_path()
+                        if file_path.endswith(".mhtml"):
+                            self.save_as_mhtml(self.current_file)
+                        elif file_path.endswith(".html") or file_path.endswith(".htm"):
+                            self.save_as_html(self.current_file)
+                        elif file_path.endswith(".txt"):
+                            self.save_as_txt(self.current_file)
                         self.start_new_document()
                     else:
-                        # Set flag to start new document after save completes.
-                        #self._new_document_after_save = True
                         self.show_save_dialog()
                         self.start_new_document()
                 elif response == "discard":
@@ -1537,11 +1429,14 @@ class EditorWindow(Adw.ApplicationWindow):
             def on_response(dialog, response):
                 if response == "save":
                     if self.current_file and not self.is_new:
-                        if self.current_file.get_path().endswith(".page"):
-                            self.save_as_page(self.current_file)
-                        else:
-                            self.save_to_file(self.current_file)
-                        self.get_application().quit()                        
+                        file_path = self.current_file.get_path()
+                        if file_path.endswith(".mhtml"):
+                            self.save_as_mhtml(self.current_file)
+                        elif file_path.endswth(".html") or file_path.endswith(".htm"):
+                            self.save_as_html(self.current_file)
+                        elif file_path.endswith(".txt"):
+                            self.save_as_txt(self.current_file)
+                        self.get_application().quit()
                     else:
                         self.show_save_dialog()
                 elif response == "discard":
@@ -1552,7 +1447,7 @@ class EditorWindow(Adw.ApplicationWindow):
             dialog.present()
             return True
         return False
-    
+
     def start_new_document(self):
         self.webview.load_html(self.initial_html, "file:///")
         self.current_file = None
@@ -1565,7 +1460,6 @@ class EditorWindow(Adw.ApplicationWindow):
     def on_close_document_clicked(self, btn):
         if not self.check_save_before_new():
             self.start_new_document()
-
 
     def on_close_request(self, *args):
         if not self.check_save_before_close():
@@ -1690,7 +1584,6 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_justify_btn.set_active(self.is_align_justify)
         except Exception as e:
             print(f"Error updating formatting state: {e}")
-########################
 
 if __name__ == "__main__":
     app = Author()
