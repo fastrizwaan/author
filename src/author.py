@@ -10,6 +10,7 @@ import shutil
 import tempfile
 from urllib.parse import urlparse
 from datetime import datetime
+import markdown  # Added for Markdown support
 
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -147,7 +148,7 @@ class EditorWindow(Adw.ApplicationWindow):
         img { max-width: 100%; resize: both; }
     </style>
 </head>
-<body><p>&nbsp;</p></body>
+<body><p> </p></body>
 </html>"""
 
         # Main layout
@@ -967,6 +968,44 @@ class EditorWindow(Adw.ApplicationWindow):
 
         return html_content
 
+    def process_markdown_images(self, md_content, base_dir, temp_assets_dir):
+        """Process Markdown images and copy them to a temporary assets directory."""
+        img_pattern = r'!\[.*?\]\((.*?)\)'
+        matches = re.findall(img_pattern, md_content)
+        
+        for i, src in enumerate(matches):
+            if src.startswith("http://") or src.startswith("https://"):
+                # Leave remote URLs as-is
+                continue
+            elif src.startswith("data:image"):
+                try:
+                    header, data = src.split(",", 1)
+                    mime_type = header.split(";")[0].replace("data:", "")
+                    ext = mime_type.split("/")[1]
+                    img_data = base64.b64decode(data)
+                    img_name = f"image_{i}.{ext}"
+                    img_path = os.path.join(temp_assets_dir, img_name)
+                    with open(img_path, "wb") as f:
+                        f.write(img_data)
+                    md_content = md_content.replace(src, f"assets/{img_name}")
+                except Exception as e:
+                    print(f"Error processing Markdown base64 image {i}: {e}")
+            else:
+                # Handle local file paths
+                try:
+                    abs_path = os.path.join(base_dir, src)
+                    if os.path.exists(abs_path):
+                        img_name = f"image_{i}{os.path.splitext(abs_path)[1]}"
+                        img_path = os.path.join(temp_assets_dir, img_name)
+                        shutil.copy(abs_path, img_path)
+                        md_content = md_content.replace(src, f"assets/{img_name}")
+                    else:
+                        print(f"Markdown image not found: {abs_path}")
+                except Exception as e:
+                    print(f"Error copying Markdown image {i}: {e}")
+        
+        return md_content
+
     def final_save_callback(self, file, result):
         try:
             file.replace_contents_finish(result)
@@ -1313,11 +1352,11 @@ class EditorWindow(Adw.ApplicationWindow):
         filter_store = Gio.ListStore.new(Gtk.FileFilter)
 
         combined_filter = Gtk.FileFilter()
-        combined_filter.set_name("Supported Files (*.page, *.html, *.htm)")
+        combined_filter.set_name("Supported Files (*.page, *.html, *.htm, *.md)")
         combined_filter.add_pattern("*.page")
         combined_filter.add_pattern("*.html")
         combined_filter.add_pattern("*.htm")
-
+        combined_filter.add_pattern("*.md")
         filter_store.append(combined_filter)
 
         page_filter = Gtk.FileFilter()
@@ -1331,6 +1370,11 @@ class EditorWindow(Adw.ApplicationWindow):
         html_filter.add_pattern("*.htm")
         filter_store.append(html_filter)
 
+        md_filter = Gtk.FileFilter()
+        md_filter.set_name("Markdown Files (*.md)")
+        md_filter.add_pattern("*.md")
+        filter_store.append(md_filter)
+
         file_dialog.set_filters(filter_store)
         file_dialog.set_default_filter(combined_filter)
         file_dialog.open(self, None, self.on_open_file_dialog_response)
@@ -1342,8 +1386,11 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.current_file = file
                 self.is_new = False
                 self.update_title()
-                if file.get_path().endswith(".page"):
+                file_path = file.get_path()
+                if file_path.endswith(".page"):
                     self.load_page_file(file)
+                elif file_path.endswith(".md"):
+                    self.load_markdown_file(file)
                 else:
                     file.load_contents_async(None, self.load_callback)
         except GLib.Error as e:
@@ -1382,6 +1429,50 @@ class EditorWindow(Adw.ApplicationWindow):
                         metadata = json.load(f)
                         if "zoom_level" in metadata:
                             self.webview.set_zoom_level(metadata["zoom_level"])
+
+    def load_markdown_file(self, file):
+        try:
+            with open(file.get_path(), 'r', encoding='utf-8') as f:
+                md_content = f.read()
+
+            # Create a temporary directory for assets
+            with tempfile.TemporaryDirectory() as temp_dir:
+                assets_dir = os.path.join(temp_dir, "assets")
+                os.makedirs(assets_dir, exist_ok=True)
+
+                # Process images in Markdown
+                base_dir = os.path.dirname(file.get_path())
+                md_content = self.process_markdown_images(md_content, base_dir, assets_dir)
+
+                # Convert Markdown to HTML
+                html_body = markdown.markdown(md_content, extensions=['extra', 'codehilite'])
+
+                # Wrap in full HTML with the app's default styles
+                html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: sans-serif; font-size: 11pt; margin: 20px; line-height: 1.5; }}
+        @media (prefers-color-scheme: dark) {{ body {{ background-color: #121212; color: #e0e0e0; }} }}
+        @media (prefers-color-scheme: light) {{ body {{ background-color: #ffffff; color: #000000; }} }}
+        img {{ max-width: 100%; resize: both; }}
+        pre {{ background-color: #f4f4f4; padding: 10px; border-radius: 5px; }}
+        code {{ background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; }}
+    </style>
+</head>
+<body>{html_body}</body>
+</html>"""
+
+                # Adjust image paths to point to the temporary assets directory
+                html_content = html_content.replace("assets/", f"file://{assets_dir}/")
+
+                # Load into WebView
+                self.webview.load_html(html_content, f"file://{temp_dir}/")
+                self.is_modified = False
+                self.update_title()
+                print(f"Loaded Markdown file: {file.get_path()}")
+        except Exception as e:
+            print(f"Error loading Markdown file: {e}")
 
     def add_css_styles(self):
         provider = Gtk.CssProvider()
