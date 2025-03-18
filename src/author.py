@@ -1313,10 +1313,11 @@ class EditorWindow(Adw.ApplicationWindow):
         filter_store = Gio.ListStore.new(Gtk.FileFilter)
 
         combined_filter = Gtk.FileFilter()
-        combined_filter.set_name("Author Files (*.page, *.html, *.htm)")
+        combined_filter.set_name("Supported Files (*.page, *.html, *.htm)")
         combined_filter.add_pattern("*.page")
         combined_filter.add_pattern("*.html")
         combined_filter.add_pattern("*.htm")
+
         filter_store.append(combined_filter)
 
         page_filter = Gtk.FileFilter()
@@ -1331,7 +1332,7 @@ class EditorWindow(Adw.ApplicationWindow):
         filter_store.append(html_filter)
 
         file_dialog.set_filters(filter_store)
-        file_dialog.set_default_filter(page_filter)
+        file_dialog.set_default_filter(combined_filter)
         file_dialog.open(self, None, self.on_open_file_dialog_response)
 
     def on_open_file_dialog_response(self, dialog, result):
