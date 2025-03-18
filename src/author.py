@@ -412,6 +412,9 @@ class EditorWindow(Adw.ApplicationWindow):
         self.webview.add_controller(key_controller)
         key_controller.connect("key-pressed", self.on_key_pressed)
 
+        self.is_modified = False
+        self.update_title()
+
     def on_scroll(self, controller, dx, dy):
         state = controller.get_current_event_state()
         ctrl_pressed = (state & Gdk.ModifierType.CONTROL_MASK) != 0
@@ -424,6 +427,8 @@ class EditorWindow(Adw.ApplicationWindow):
         return False
 
     def on_content_changed_js(self, manager, js_result):
+        if getattr(self, 'ignore_changes', False):
+            return
         try:
             if js_result and hasattr(js_result, 'get_js_value'):
                 js_value = js_result.get_js_value()
@@ -444,6 +449,7 @@ class EditorWindow(Adw.ApplicationWindow):
             print(f"Error in on_content_changed_js: {e}")
             self.is_modified = True
             self.update_title()
+
 
     def adjust_zoom_level(self, delta):
         current = self.webview.get_zoom_level()
@@ -685,32 +691,29 @@ class EditorWindow(Adw.ApplicationWindow):
             self.webview.evaluate_javascript(cursor_script, -1, None, None, None, None, None)
             GLib.idle_add(self.webview.grab_focus)
 
+            # Modified change detection: only notify if content truly changes.
             change_detection_script = """
                 (function() {
+                    let lastContent = document.body.innerHTML;
                     function debounce(func, wait) {
                         let timeout;
                         return function executedFunction(...args) {
-                            const later = () => {
-                                clearTimeout(timeout);
-                                func(...args);
-                            };
                             clearTimeout(timeout);
-                            timeout = setTimeout(later, wait);
+                            timeout = setTimeout(() => func(...args), wait);
                         };
                     }
                     const notifyChange = debounce(function() {
-                        window.webkit.messageHandlers.contentChanged.postMessage('changed');
+                        let currentContent = document.body.innerHTML;
+                        if (currentContent !== lastContent) {
+                            window.webkit.messageHandlers.contentChanged.postMessage('changed');
+                            lastContent = currentContent;
+                        }
                     }, 250);
                     document.addEventListener('input', notifyChange);
-                    document.addEventListener('keyup', notifyChange);
                     document.addEventListener('paste', notifyChange);
                     document.addEventListener('cut', notifyChange);
-                    const observer = new MutationObserver(notifyChange);
-                    observer.observe(document.body, {
-                        childList: true,
-                        subtree: true,
-                        characterData: true,
-                        attributes: true
+                    document.addEventListener('selectionchange', () => {
+                        window.webkit.messageHandlers.contentChanged.postMessage('selection');
                     });
                 })();
             """
@@ -720,8 +723,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 dark_mode_script = """
                     (function() {
                         let styleId = 'dynamic-theme-style';
-                        let existingStyle = document.getElementById(styleId);
-                        if (!existingStyle) {
+                        if (!document.getElementById(styleId)) {
                             let style = document.createElement('style');
                             style.id = styleId;
                             style.textContent = `
@@ -737,7 +739,7 @@ class EditorWindow(Adw.ApplicationWindow):
                     })();
                 """
                 self.exec_js(dark_mode_script)
-            
+                
             selection_script = """
                 (function() {
                     document.addEventListener('selectionchange', () => {
@@ -781,7 +783,8 @@ class EditorWindow(Adw.ApplicationWindow):
         else:
             self.show_save_dialog()
 
-    def on_new_clicked(self, btn): 
+    def on_new_clicked(self, btn):
+        self.ignore_changes = True
         self.webview.load_html(self.initial_html, "file:///")
         self.current_file = None
         self.is_new = True
@@ -789,6 +792,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.document_number = EditorWindow.document_counter
         EditorWindow.document_counter += 1
         self.update_title()
+        GLib.timeout_add(500, self.clear_ignore_changes)
 
     def on_save_as_clicked(self, btn):
         self.show_save_dialog(is_save_as=True)
@@ -855,6 +859,10 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.save_as_page(file)
                 else:
                     self.save_to_file(file)
+
+                if getattr(self, '_new_document_after_save', False):
+                    self.start_new_document()
+                    self._new_document_after_save = False
         except GLib.Error as e:
             print("Save error:", e.message)
 
@@ -1402,9 +1410,11 @@ class EditorWindow(Adw.ApplicationWindow):
             if ok:
                 self.current_file = file
                 self.is_new = False
+                self.ignore_changes = True
                 self.is_modified = False
                 self.update_title()
                 self.webview.load_html(content.decode(), file.get_uri())
+                GLib.timeout_add(500, self.clear_ignore_changes)
         except GLib.Error as e:
             print("Load error:", e.message)
 
@@ -1412,17 +1422,16 @@ class EditorWindow(Adw.ApplicationWindow):
         with tempfile.TemporaryDirectory() as temp_dir:
             with zipfile.ZipFile(file.get_path(), "r") as zf:
                 zf.extractall(temp_dir)
-            
             html_path = os.path.join(temp_dir, "index.html")
             if os.path.exists(html_path):
                 with open(html_path, "r", encoding="utf-8") as f:
                     html_content = f.read()
-                
                 html_content = html_content.replace("assets/", f"file://{os.path.join(temp_dir, 'assets')}/")
+                self.ignore_changes = True
                 self.webview.load_html(html_content, f"file://{temp_dir}/")
+                GLib.timeout_add(500, self.clear_ignore_changes)
                 self.is_modified = False
                 self.update_title()
-                
                 metadata_path = os.path.join(temp_dir, "metadata.json")
                 if os.path.exists(metadata_path):
                     with open(metadata_path, "r", encoding="utf-8") as f:
@@ -1434,46 +1443,40 @@ class EditorWindow(Adw.ApplicationWindow):
         try:
             with open(file.get_path(), 'r', encoding='utf-8') as f:
                 md_content = f.read()
-
-            # Create a temporary directory for assets
             with tempfile.TemporaryDirectory() as temp_dir:
                 assets_dir = os.path.join(temp_dir, "assets")
                 os.makedirs(assets_dir, exist_ok=True)
-
-                # Process images in Markdown
                 base_dir = os.path.dirname(file.get_path())
                 md_content = self.process_markdown_images(md_content, base_dir, assets_dir)
-
-                # Convert Markdown to HTML
                 html_body = markdown.markdown(md_content, extensions=['extra', 'codehilite'])
-
-                # Wrap in full HTML with the app's default styles
                 html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body {{ font-family: sans-serif; font-size: 11pt; margin: 20px; line-height: 1.5; }}
-        @media (prefers-color-scheme: dark) {{ body {{ background-color: #121212; color: #e0e0e0; }} }}
-        @media (prefers-color-scheme: light) {{ body {{ background-color: #ffffff; color: #000000; }} }}
-        img {{ max-width: 100%; resize: both; }}
-        pre {{ background-color: #f4f4f4; padding: 10px; border-radius: 5px; }}
-        code {{ background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; }}
-    </style>
-</head>
-<body>{html_body}</body>
-</html>"""
-
-                # Adjust image paths to point to the temporary assets directory
+    <html>
+    <head>
+        <style>
+            body {{ font-family: sans-serif; font-size: 11pt; margin: 20px; line-height: 1.5; }}
+            @media (prefers-color-scheme: dark) {{ body {{ background-color: #121212; color: #e0e0e0; }} }}
+            @media (prefers-color-scheme: light) {{ body {{ background-color: #ffffff; color: #000000; }} }}
+            img {{ max-width: 100%; resize: both; }}
+            pre {{ background-color: #f4f4f4; padding: 10px; border-radius: 5px; }}
+            code {{ background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; }}
+        </style>
+    </head>
+    <body>{html_body}</body>
+    </html>"""
                 html_content = html_content.replace("assets/", f"file://{assets_dir}/")
-
-                # Load into WebView
+                self.ignore_changes = True
                 self.webview.load_html(html_content, f"file://{temp_dir}/")
+                GLib.timeout_add(500, self.clear_ignore_changes)
                 self.is_modified = False
                 self.update_title()
                 print(f"Loaded Markdown file: {file.get_path()}")
         except Exception as e:
             print(f"Error loading Markdown file: {e}")
-
+    
+    def clear_ignore_changes(self):
+        self.ignore_changes = False
+        return False
+    
     def add_css_styles(self):
         provider = Gtk.CssProvider()
         provider.load_from_data(b"window { background-color: @window_bg_color; }")
@@ -1503,7 +1506,10 @@ class EditorWindow(Adw.ApplicationWindow):
                             self.save_to_file(self.current_file)
                         self.start_new_document()
                     else:
+                        # Set flag to start new document after save completes.
+                        #self._new_document_after_save = True
                         self.show_save_dialog()
+                        self.start_new_document()
                 elif response == "discard":
                     self.start_new_document()
                 dialog.destroy()
@@ -1535,7 +1541,7 @@ class EditorWindow(Adw.ApplicationWindow):
                             self.save_as_page(self.current_file)
                         else:
                             self.save_to_file(self.current_file)
-                        self.get_application().quit()
+                        self.get_application().quit()                        
                     else:
                         self.show_save_dialog()
                 elif response == "discard":
@@ -1559,6 +1565,7 @@ class EditorWindow(Adw.ApplicationWindow):
     def on_close_document_clicked(self, btn):
         if not self.check_save_before_new():
             self.start_new_document()
+
 
     def on_close_request(self, *args):
         if not self.check_save_before_close():
@@ -1683,6 +1690,7 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_justify_btn.set_active(self.is_align_justify)
         except Exception as e:
             print(f"Error updating formatting state: {e}")
+########################
 
 if __name__ == "__main__":
     app = Author()
