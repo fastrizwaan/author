@@ -702,15 +702,28 @@ class EditorWindow(Adw.ApplicationWindow):
         if load_event == WebKit.LoadEvent.FINISHED:
             # Position cursor at start
             cursor_script = """
-                let p = document.querySelector('p');
-                if (p) {
+                    (function() {
+                    let p = document.querySelector('p');
+                    if (!p) {
+                        p = document.createElement('p');
+                        document.body.appendChild(p);
+                    }
+
+                    // Ensure p contains a zero-width space
+                    if (p.innerHTML.trim() === '') {
+                        p.innerHTML = '\u200B';  // Zero-width space
+                    }
+
                     let range = document.createRange();
-                    range.setStart(p, 0);
-                    range.setEnd(p, 0);
                     let sel = window.getSelection();
+
+                    range.setStart(p.firstChild, 1); // Place cursor after the zero-width space
+                    range.setEnd(p.firstChild, 1);
+
                     sel.removeAllRanges();
                     sel.addRange(range);
-                }
+                })();
+
             """
             self.webview.evaluate_javascript(cursor_script, -1, None, None, None, None, None)
             GLib.idle_add(self.webview.grab_focus)
@@ -1402,7 +1415,6 @@ class EditorWindow(Adw.ApplicationWindow):
             return True
 ################ /on Close clicked #####################
 ################ /on Close clicked #####################
-## /check format state of buttons and shortcuts
     def apply_persistent_formatting(self, format_type, enable):
         """Apply or remove formatting so that subsequently typed text adopts (or loses) the style."""
         # Using execCommand for both collapsed and non-collapsed selections.
@@ -1422,10 +1434,8 @@ class EditorWindow(Adw.ApplicationWindow):
                 // Toggle the command if the current state doesn't match the desired state.
                 if (currentState !== {desired}) {{
                     document.execCommand(cmd, false, null);
-                    // Insert zero-width space when disabling formatting to prevent format bleed
-                    if (!{desired}) {{
-                        document.execCommand('insertText', false, '\u200B');
-                    }}
+                    // Insert zero-width space when enabling or disabling formatting
+                    document.execCommand('insertText', false, '\u200B');
                 }}
                 console.log('Applied {format_type}: ' + {desired});
             }})();
