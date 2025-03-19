@@ -547,8 +547,11 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
             # Cut - Ctrl+X or Ctrl+x
             elif keyval in (Gdk.KEY_x, Gdk.KEY_X):
-                print("CTRL+X pressed")
-                self.on_cut_clicked(None)
+                print("CTRL+SHIFT+X pressed")
+                self.is_strikethrough = not self.is_strikethrough
+                self.apply_persistent_formatting('strikethrough', self.is_strikethrough)
+                self.strikethrough_btn.set_active(self.is_strikethrough)
+                self.webview.grab_focus()
                 return True
             # Copy - Ctrl+C or Ctrl+c
             elif keyval in (Gdk.KEY_c, Gdk.KEY_C):
@@ -1272,36 +1275,69 @@ class EditorWindow(Adw.ApplicationWindow):
 
     def apply_alignment(self, alignment):
         script = f"""
-            try {{
-                let sel = window.getSelection();
-                let range = sel.rangeCount ? sel.getRangeAt(0) : null;
-                if (!range) {{
-                    range = document.createRange();
-                    let p = document.querySelector('p') || document.createElement('p');
-                    if (!p.parentNode) {{
-                        p.innerHTML = '\u200B';
-                        document.body.appendChild(p);
+            (function() {{
+                try {{
+                    let sel = window.getSelection();
+                    if (!sel.rangeCount) {{
+                        // No selection: apply to current paragraph or create one
+                        let p = document.querySelector('p') || document.createElement('p');
+                        if (!p.parentNode) {{
+                            document.body.appendChild(p);
+                        }}
+                        p.style.textAlign = '{alignment}';
+                        let range = document.createRange();
+                        range.selectNodeContents(p);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                        return;
                     }}
-                    range.selectNodeContents(p);
-                    range.collapse(true);
+
+                    let range = sel.getRangeAt(0);
+                    let startContainer = range.startContainer;
+                    let endContainer = range.endContainer;
+
+                    // Find all block elements (p, div, h1-h6, etc.) in the selection
+                    let blocks = [];
+                    let current = startContainer.nodeType === 3 ? startContainer.parentElement : startContainer;
+                    let end = endContainer.nodeType === 3 ? endContainer.parentElement : endContainer;
+
+                    // Walk up to find the nearest block ancestor for start
+                    while (current && !/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/i.test(current.tagName)) {{
+                        current = current.parentElement;
+                    }}
+                    let startBlock = current;
+
+                    // Walk up to find the nearest block ancestor for end
+                    current = end;
+                    while (current && !/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/i.test(current.tagName)) {{
+                        current = current.parentElement;
+                    }}
+                    let endBlock = current;
+
+                    if (!startBlock || !endBlock) return; // No valid blocks found
+
+                    // Collect all blocks between start and end
+                    current = startBlock;
+                    while (current && current !== endBlock.nextSibling) {{
+                        if (/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/i.test(current.tagName)) {{
+                            blocks.push(current);
+                        }}
+                        current = current.nextSibling;
+                    }}
+
+                    // Apply alignment to all blocks
+                    blocks.forEach(block => {{
+                        block.style.textAlign = '{alignment}';
+                    }});
+
+                    // Restore selection
                     sel.removeAllRanges();
                     sel.addRange(range);
+                }} catch (e) {{
+                    console.error('Alignment failed ({alignment}): ' + e.message);
                 }}
-                let block = range.commonAncestorContainer;
-                if (block.nodeType === 3) block = block.parentElement;
-                while (block && !/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/i.test(block.tagName)) {{
-                    block = block.parentElement;
-                }}
-                if (!block) {{
-                    block = document.createElement('p');
-                    range.insertNode(block);
-                }}
-                block.style.textAlign = '{alignment}';
-                sel.removeAllRanges();
-                sel.addRange(range);
-            }} catch (e) {{
-                console.error('Alignment failed ({alignment}): ' + e.message);
-            }}
+            }})();
         """
         self.exec_js(script, self.on_js_error)
         self.webview.grab_focus()
@@ -1652,28 +1688,85 @@ class EditorWindow(Adw.ApplicationWindow):
 ################ /on Close clicked #####################
 ################ /on Close clicked #####################
     def apply_persistent_formatting(self, format_type, enable):
-        """Apply or remove formatting so that subsequently typed text adopts (or loses) the style."""
-        desired = str(enable).lower()  # yields "true" or "false"
+        """Apply or remove formatting for new text or selected text without excessive spans."""
+        # Update state
+        if format_type == 'bold':
+            self.is_bold = enable
+        elif format_type == 'italic':
+            self.is_italic = enable
+        elif format_type == 'underline':
+            self.is_underline = enable
+        elif format_type == 'strikethrough':
+            self.is_strikethrough = enable
+
+        # Construct combined text-decoration style
+        decorations = []
+        if self.is_underline:
+            decorations.append('underline')
+        if self.is_strikethrough:
+            decorations.append('line-through')
+        decoration_style = ' '.join(decorations) if decorations else 'none'
+
         script = f"""
             (function() {{
+                document.execCommand('styleWithCSS', false, true);
                 let sel = window.getSelection();
+                let range;
+
+                // Ensure a valid range
                 if (!sel.rangeCount) {{
-                    let range = document.createRange();
-                    range.selectNodeContents(document.body);
-                    range.collapse(false);
+                    let p = document.querySelector('p') || document.createElement('p');
+                    if (!p.parentNode) {{
+                        document.body.appendChild(p);
+                    }}
+                    range = document.createRange();
+                    range.selectNodeContents(p);
+                    range.collapse(true);
                     sel.removeAllRanges();
                     sel.addRange(range);
+                }} else {{
+                    range = sel.getRangeAt(0);
                 }}
-                let cmd = '{format_type}';
-                let currentState = document.queryCommandState(cmd);
-                if (currentState !== {desired}) {{
-                    document.execCommand(cmd, false, null);
+
+                // Apply formatting based on type
+                if ('{format_type}' === 'bold') {{
+                    if ({str(enable).lower()} !== document.queryCommandState('bold')) {{
+                        document.execCommand('bold', false, null);
+                    }}
+                }} else if ('{format_type}' === 'italic') {{
+                    if ({str(enable).lower()} !== document.queryCommandState('italic')) {{
+                        document.execCommand('italic', false, null);
+                    }}
+                }} else if ('{format_type}' === 'underline') {{
+                    if ({str(enable).lower()} !== document.queryCommandState('underline')) {{
+                        document.execCommand('underline', false, null);
+                    }}
+                }} else if ('{format_type}' === 'strikethrough') {{
+                    if ({str(enable).lower()} !== document.queryCommandState('strikethrough')) {{
+                        document.execCommand('strikethrough', false, null);
+                    }}
                 }}
-                console.log('Applied {format_type}: ' + {desired});
+
+                if (!range.collapsed) {{
+                    // Selection exists: consolidate styles
+                    let contents = range.extractContents();
+                    if (contents.textContent.trim().length > 0) {{
+                        let span = document.createElement('span');
+                        span.style.fontWeight = {("'bold'" if self.is_bold else "'normal'")};
+                        span.style.fontStyle = {("'italic'" if self.is_italic else "'normal'")};
+                        span.style.textDecoration = '{decoration_style}';
+                        span.appendChild(contents);
+                        range.insertNode(span);
+                        range.selectNodeContents(span);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }}
+                }}
+
+                console.log('Applied formatting - bold: {self.is_bold}, italic: {self.is_italic}, underline: {self.is_underline}, strikethrough: {self.is_strikethrough}');
             }})();
         """
         self.exec_js(script)
-
 
     def apply_list_formatting(self, list_type, enable):
         """Apply or remove list formatting."""
