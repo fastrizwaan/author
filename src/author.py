@@ -850,14 +850,9 @@ class EditorWindow(Adw.ApplicationWindow):
             # Show save dialog for new/untitled files
             self.show_save_dialog()
 
-    def on_new_clicked(self, btn): 
-        self.webview.load_html(self.initial_html, "file:///")
-        EditorWindow.document_counter += 1
-        self.document_number = EditorWindow.document_counter
-        self.current_file = None
-        self.is_new = True
-        self.is_modified = False  # Reset modified flag for new document
-        self.update_title()
+    def on_new_clicked(self, btn):
+        if not self.check_save_before_new():
+            self.start_new_document()
 
     def save_callback(self, dialog, result):
         try:
@@ -1552,15 +1547,46 @@ class EditorWindow(Adw.ApplicationWindow):
         dialog.save(self, None, save_and_new_callback)
 
     def start_new_document(self):
-            """Start a new document"""
-            self.webview.load_html(self.initial_html, "file:///")
-            self.current_file = None
-            self.is_new = True
-            self.is_modified = False
-            self.document_number = EditorWindow.document_counter
-            EditorWindow.document_counter += 1
-            self.update_title()
-            
+        """Start a new document and reset formatting states."""
+        self.webview.load_html(self.initial_html, "file:///")
+        self.current_file = None
+        self.is_new = True
+        self.is_modified = False
+        self.document_number = EditorWindow.document_counter
+        EditorWindow.document_counter += 1
+        
+        # Reset formatting states
+        self.is_bold = False
+        self.is_italic = False
+        self.is_underline = False
+        self.is_strikethrough = False
+        self.is_bullet_list = False
+        self.is_number_list = False
+        self.is_align_left = True  # Default to left alignment
+        self.is_align_center = False
+        self.is_align_right = False
+        self.is_align_justify = False
+        
+        self.update_title()
+        # Update toolbar immediately
+        self.update_formatting_buttons()
+
+    def update_formatting_buttons(self):
+        """Update all formatting toolbar buttons based on current states."""
+        try:
+            self.bold_btn.set_active(self.is_bold)
+            self.italic_btn.set_active(self.is_italic)
+            self.underline_btn.set_active(self.is_underline)
+            self.strikethrough_btn.set_active(self.is_strikethrough)
+            self.bullet_btn.set_active(self.is_bullet_list)
+            self.number_btn.set_active(self.is_number_list)
+            self.align_left_btn.set_active(self.is_align_left)
+            self.align_center_btn.set_active(self.is_align_center)
+            self.align_right_btn.set_active(self.is_align_right)
+            self.align_justify_btn.set_active(self.is_align_justify)
+        except AttributeError as e:
+            print(f"Button update failed: {e}")   
+
     def on_close_document_clicked(self, btn):
         """Handle close document button click - starts new document"""
         if not self.check_save_before_new():
