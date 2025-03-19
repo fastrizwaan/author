@@ -139,7 +139,7 @@ class EditorWindow(Adw.ApplicationWindow):
         img { max-width: 100%; resize: both; }
     </style>
 </head>
-<body><p><br></p></body>
+<body><p>&#8203;</p></body>
 </html>"""
 
         # Main layout
