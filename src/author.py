@@ -47,9 +47,14 @@ class EditorWindow(Adw.ApplicationWindow):
         EditorWindow.document_counter += 1
         self.update_title()
 
+        # Add click gesture controller
+        click_controller = Gtk.GestureClick()
+        click_controller.connect("pressed", self.on_webview_clicked)
+
         scroll = Gtk.ScrolledWindow(vexpand=True)
         self.webview = WebKit.WebView(editable=True)
-        
+        self.webview.add_controller(click_controller)
+
         # Register the script message handler for content changes
         user_content = self.webview.get_user_content_manager()
         user_content.register_script_message_handler('contentChanged')
@@ -402,6 +407,52 @@ class EditorWindow(Adw.ApplicationWindow):
         key_controller = Gtk.EventControllerKey.new()
         self.webview.add_controller(key_controller)
         key_controller.connect("key-pressed", self.on_key_pressed)
+
+    def on_webview_clicked(self, gesture, n_press, x, y):
+        """Handle click events in the WebView, update formatting only when clicking on text."""
+        print(f"WebView clicked at x={x}, y={y}")
+        script = f"""
+            (function() {{
+                let element = document.elementFromPoint({x}, {y});
+                if (!element) return false;
+                // Check if the element or its parent contains text
+                let isText = element.nodeType === 3 || 
+                            (element.nodeType === 1 && element.textContent.trim().length > 0 && 
+                            !['HTML', 'BODY', 'HEAD'].includes(element.tagName));
+                if (isText) {{
+                    let range = document.createRange();
+                    let sel = window.getSelection();
+                    // Try to position cursor near the click
+                    if (element.nodeType === 3) {{
+                        let offset = Math.min(Math.round({x} / 10), element.length); // Rough estimate
+                        range.setStart(element, offset);
+                        range.setEnd(element, offset);
+                    }} else {{
+                        range.selectNodeContents(element);
+                        range.collapse(true);
+                    }}
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    return true;
+                }}
+                return false;
+            }})();
+        """
+        self.webview.evaluate_javascript(script, -1, None, None, None, 
+                                        self.on_click_check_result, None)
+
+    def on_click_check_result(self, webview, result, user_data):
+        """Handle result of click check and update formatting if text was clicked."""
+        try:
+            js_value = webview.evaluate_javascript_finish(result)
+            if js_value and js_value.is_boolean() and js_value.to_boolean():
+                print("Clicked on text, updating formatting")
+                self.update_formatting_state()
+            else:
+                print("No text clicked, skipping update")
+        except Exception as e:
+            print(f"Click check error: {e}")
+        self.webview.grab_focus()
 
     def on_scroll(self, controller, dx, dy):
         # Check if Control key is pressed
@@ -1602,7 +1653,6 @@ class EditorWindow(Adw.ApplicationWindow):
 ################ /on Close clicked #####################
     def apply_persistent_formatting(self, format_type, enable):
         """Apply or remove formatting so that subsequently typed text adopts (or loses) the style."""
-        # Using execCommand for both collapsed and non-collapsed selections.
         desired = str(enable).lower()  # yields "true" or "false"
         script = f"""
             (function() {{
@@ -1616,11 +1666,8 @@ class EditorWindow(Adw.ApplicationWindow):
                 }}
                 let cmd = '{format_type}';
                 let currentState = document.queryCommandState(cmd);
-                // Toggle the command if the current state doesn't match the desired state.
                 if (currentState !== {desired}) {{
                     document.execCommand(cmd, false, null);
-                    // Insert zero-width space when enabling or disabling formatting
-                    //document.execCommand('insertText', false, '\u200B');
                 }}
                 console.log('Applied {format_type}: ' + {desired});
             }})();
