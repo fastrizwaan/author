@@ -1422,6 +1422,10 @@ class EditorWindow(Adw.ApplicationWindow):
                 // Toggle the command if the current state doesn't match the desired state.
                 if (currentState !== {desired}) {{
                     document.execCommand(cmd, false, null);
+                    // Insert zero-width space when disabling formatting to prevent format bleed
+                    if (!{desired}) {{
+                        document.execCommand('insertText', false, '\u200B');
+                    }}
                 }}
                 console.log('Applied {format_type}: ' + {desired});
             }})();
