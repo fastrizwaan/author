@@ -811,7 +811,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 """
                 self.exec_js(dark_mode_script)
             GLib.idle_add(self.update_formatting_buttons)
-            
+
     def exec_js(self, script, callback=None):
         self.webview.evaluate_javascript(script, -1, None, None, None, 
                                    callback or self.on_js_executed, None)
@@ -1620,7 +1620,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 if (currentState !== {desired}) {{
                     document.execCommand(cmd, false, null);
                     // Insert zero-width space when enabling or disabling formatting
-                    document.execCommand('insertText', false, '\u200B');
+                    //document.execCommand('insertText', false, '\u200B');
                 }}
                 console.log('Applied {format_type}: ' + {desired});
             }})();
