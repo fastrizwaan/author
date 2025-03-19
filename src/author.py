@@ -26,7 +26,19 @@ class EditorWindow(Adw.ApplicationWindow):
         self.set_title("Author")
         self.set_default_size(1000, 700)
         self.add_css_styles()
-        
+
+        # State tracking for formatting
+        self.is_bold = False
+        self.is_italic = False
+        self.is_underline = False
+        self.is_strikethrough = False
+        self.is_bullet_list = False
+        self.is_number_list = False
+        self.is_align_left = True  # Default alignment
+        self.is_align_center = False
+        self.is_align_right = False
+        self.is_align_justify = False
+
         # Initialize document state
         self.current_file = None
         self.is_new = True
@@ -305,18 +317,29 @@ class EditorWindow(Adw.ApplicationWindow):
         self.strikethrough_btn.connect("toggled", self.on_strikethrough_toggled)
         text_format_group.append(self.strikethrough_btn)
 
-        # Populate align group
-        align_buttons = [
-            ("format-justify-left", self.on_align_left),
-            ("format-justify-center", self.on_align_center),
-            ("format-justify-right", self.on_align_right),
-            ("format-justify-fill", self.on_align_justify)
-        ]
-        for icon, handler in align_buttons:
-            btn = Gtk.Button(icon_name=icon)
-            btn.add_css_class("flat")
-            btn.connect("clicked", handler)
-            align_group.append(btn)
+        self.align_left_btn = Gtk.ToggleButton(icon_name="format-justify-left")
+        self.align_left_btn.add_css_class("flat")
+        self.align_left_btn.connect("toggled", self.on_align_left)
+        align_group.append(self.align_left_btn)
+
+        self.align_center_btn = Gtk.ToggleButton(icon_name="format-justify-center")
+        self.align_center_btn.add_css_class("flat")
+        self.align_center_btn.connect("toggled", self.on_align_center)
+        align_group.append(self.align_center_btn)
+
+        self.align_right_btn = Gtk.ToggleButton(icon_name="format-justify-right")
+        self.align_right_btn.add_css_class("flat")
+        self.align_right_btn.connect("toggled", self.on_align_right)
+        align_group.append(self.align_right_btn)
+
+        self.align_justify_btn = Gtk.ToggleButton(icon_name="format-justify-fill")
+        self.align_justify_btn.add_css_class("flat")
+        self.align_justify_btn.connect("toggled", self.on_align_justify)
+        align_group.append(self.align_justify_btn)
+
+        # Set default alignment to left
+        self.align_left_btn.set_active(True)
+
 
         # Populate list group
         self.bullet_btn = Gtk.ToggleButton(icon_name="view-list-bullet")
@@ -734,11 +757,11 @@ class EditorWindow(Adw.ApplicationWindow):
 
     def on_new_clicked(self, btn): 
         self.webview.load_html(self.initial_html, "file:///")
+        EditorWindow.document_counter += 1
+        self.document_number = EditorWindow.document_counter
         self.current_file = None
         self.is_new = True
         self.is_modified = False  # Reset modified flag for new document
-        self.document_number = EditorWindow.document_counter
-        EditorWindow.document_counter += 1
         self.update_title()
 
     def save_callback(self, dialog, result):
