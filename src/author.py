@@ -449,146 +449,153 @@ class EditorWindow(Adw.ApplicationWindow):
         self.webview.set_zoom_level(new_zoom)
 
     def on_key_pressed(self, controller, keyval, keycode, state):
-        """Handle key press events for shortcuts."""
+        """Handle key press events for shortcuts, case-insensitive for letters."""
         print(f"Key pressed: keyval={keyval}, keycode={keycode}, state={state}")  # Debug output
         ctrl = (state & Gdk.ModifierType.CONTROL_MASK) != 0
         shift = (state & Gdk.ModifierType.SHIFT_MASK) != 0
 
-        if ctrl:
-            # Handle zoom in/out with Ctrl+Plus/Equal and Ctrl+Minus
-            if keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
-                self.adjust_zoom_level(0.1)
-                return True
-            elif keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
-                self.adjust_zoom_level(-0.1)
-                return True
-
         if ctrl and not shift:
-            if keyval == Gdk.KEY_b:
+            # Bold - Ctrl+B or Ctrl+b
+            if keyval in (Gdk.KEY_b, Gdk.KEY_B):
                 print("CTRL+B pressed")
                 self.is_bold = not self.is_bold
                 self.apply_persistent_formatting('bold', self.is_bold)
                 self.bold_btn.set_active(self.is_bold)
                 self.webview.grab_focus()
                 return True
-            elif keyval == Gdk.KEY_i:
+            # Italic - Ctrl+I or Ctrl+i
+            elif keyval in (Gdk.KEY_i, Gdk.KEY_I):
                 print("CTRL+I pressed")
                 self.is_italic = not self.is_italic
                 self.apply_persistent_formatting('italic', self.is_italic)
                 self.italic_btn.set_active(self.is_italic)
                 self.webview.grab_focus()
                 return True
-            elif keyval == Gdk.KEY_u:
+            # Underline - Ctrl+U or Ctrl+u
+            elif keyval in (Gdk.KEY_u, Gdk.KEY_U):
                 print("CTRL+U pressed")
                 self.is_underline = not self.is_underline
                 self.apply_persistent_formatting('underline', self.is_underline)
                 self.underline_btn.set_active(self.is_underline)
                 self.webview.grab_focus()
                 return True
-            elif keyval == Gdk.KEY_s:
-                print("CTRL+S pressed")
-                self.on_save_clicked(None)
-                return True
-            elif keyval == Gdk.KEY_w:
-                print("CTRL+W pressed")
-                self.on_close_document_clicked(None)
-                return True
-            elif keyval == Gdk.KEY_n:
+            # New - Ctrl+N or Ctrl+n
+            elif keyval in (Gdk.KEY_n, Gdk.KEY_N):
                 print("CTRL+N pressed")
                 self.on_new_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_o:
+            # Open - Ctrl+O or Ctrl+o
+            elif keyval in (Gdk.KEY_o, Gdk.KEY_O):
                 print("CTRL+O pressed")
                 self.on_open_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_p:
-                print("CTRL+P pressed")
-                self.on_print_clicked(None)
+            # Save - Ctrl+S or Ctrl+s
+            elif keyval in (Gdk.KEY_s, Gdk.KEY_S):
+                print("CTRL+S pressed")
+                self.on_save_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_x:
+            # Cut - Ctrl+X or Ctrl+x
+            elif keyval in (Gdk.KEY_x, Gdk.KEY_X):
                 print("CTRL+X pressed")
-                self.exec_js("""
-                    (function() {
-                        let sel = window.getSelection();
-                        if (sel.rangeCount) {
-                            let range = sel.getRangeAt(0);
-                            let span = document.createElement('span');
-                            span.style.backgroundColor = 'yellow';
-                            range.surroundContents(span);
-                            document.execCommand('cut');
-                            setTimeout(() => { if (span.parentNode) span.outerHTML = span.innerHTML; }, 1000);
-                        }
-                    })();
-                """)
+                self.on_cut_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_c:
+            # Copy - Ctrl+C or Ctrl+c
+            elif keyval in (Gdk.KEY_c, Gdk.KEY_C):
                 print("CTRL+C pressed")
                 self.on_copy_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_v:
+            # Paste - Ctrl+V or Ctrl+v
+            elif keyval in (Gdk.KEY_v, Gdk.KEY_V):
                 print("CTRL+V pressed")
                 self.on_paste_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_z:
+            # Undo - Ctrl+Z or Ctrl+z
+            elif keyval in (Gdk.KEY_z, Gdk.KEY_Z):
                 print("CTRL+Z pressed")
                 self.on_undo_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_y:
+            # Redo - Ctrl+Y or Ctrl+y
+            elif keyval in (Gdk.KEY_y, Gdk.KEY_Y):
                 print("CTRL+Y pressed")
                 self.on_redo_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_f:
+            # Find - Ctrl+F or Ctrl+f
+            elif keyval in (Gdk.KEY_f, Gdk.KEY_F):
                 print("CTRL+F pressed")
                 self.on_find_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_h:
+            # Replace - Ctrl+H or Ctrl+h
+            elif keyval in (Gdk.KEY_h, Gdk.KEY_H):
                 print("CTRL+H pressed")
                 self.on_replace_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_l:
-                print("CTRL+L pressed")
-                self.align_left_btn.set_active(not self.align_left_btn.get_active())
-                self.on_align_left(self.align_left_btn)
+            # Print - Ctrl+P or Ctrl+p
+            elif keyval in (Gdk.KEY_p, Gdk.KEY_P):
+                print("CTRL+P pressed")
+                self.on_print_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_e:
-                print("CTRL+E pressed")
-                self.align_center_btn.set_active(not self.align_center_btn.get_active())
-                self.on_align_center(self.align_center_btn)
+            # Close - Ctrl+W or Ctrl+w
+            elif keyval in (Gdk.KEY_w, Gdk.KEY_W):
+                print("CTRL+W pressed")
+                self.on_close_document_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_r:
-                print("CTRL+R pressed")
-                self.align_right_btn.set_active(not self.align_right_btn.get_active())
-                self.on_align_right(self.align_right_btn)
+            # Align Left - Ctrl+L or Ctrl+l
+            elif keyval in (Gdk.KEY_l, Gdk.KEY_L):
+                print("CTRL+L pressed - Align Left")
+                self.on_align_left()
                 return True
-            elif keyval == Gdk.KEY_j:
-                print("CTRL+J pressed")
-                self.align_justify_btn.set_active(not self.align_justify_btn.get_active())
-                self.on_align_justify(self.align_justify_btn)
+            # Align Center - Ctrl+E or Ctrl+e
+            elif keyval in (Gdk.KEY_e, Gdk.KEY_E):
+                print("CTRL+E pressed - Align Center")
+                self.on_align_center()
+                return True
+            # Align Right - Ctrl+R or Ctrl+r
+            elif keyval in (Gdk.KEY_r, Gdk.KEY_R):
+                print("CTRL+R pressed - Align Right")
+                self.on_align_right()
+                return True
+            # Align Justify - Ctrl+J or Ctrl+j
+            elif keyval in (Gdk.KEY_j, Gdk.KEY_J):
+                print("CTRL+J pressed - Align Justify")
+                self.on_align_justify()
+                return True
+            # Zoom In - Ctrl+Plus/Equal/KP_Add
+            elif keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+                self.adjust_zoom_level(0.1)
+                return True
+            # Zoom Out - Ctrl+Minus/KP_Subtract
+            elif keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+                self.adjust_zoom_level(-0.1)
                 return True
 
         elif ctrl and shift:
-            if keyval == Gdk.KEY_S:
+            # Save As - Ctrl+Shift+S or Ctrl+Shift+s
+            if keyval in (Gdk.KEY_s, Gdk.KEY_S):
                 print("CTRL+SHIFT+S pressed")
                 self.on_save_as_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_Z:
+            # Redo - Ctrl+Shift+Z or Ctrl+Shift+z
+            elif keyval in (Gdk.KEY_z, Gdk.KEY_Z):
                 print("CTRL+SHIFT+Z pressed")
                 self.on_redo_clicked(None)
                 return True
-            elif keyval == Gdk.KEY_X:
+            # Strikethrough - Ctrl+Shift+X or Ctrl+Shift+x
+            elif keyval in (Gdk.KEY_x, Gdk.KEY_X):
                 print("CTRL+SHIFT+X pressed")
                 self.is_strikethrough = not self.is_strikethrough
                 self.apply_persistent_formatting('strikethrough', self.is_strikethrough)
                 self.strikethrough_btn.set_active(self.is_strikethrough)
                 self.webview.grab_focus()
                 return True
-            elif keyval == Gdk.KEY_L:
+            # Bullet List - Ctrl+Shift+L or Ctrl+Shift+l
+            elif keyval in (Gdk.KEY_l, Gdk.KEY_L):
                 print("CTRL+SHIFT+L pressed")
                 self.is_bullet_list = not self.is_bullet_list
                 self.apply_list_formatting('unordered', self.is_bullet_list)
                 self.bullet_btn.set_active(self.is_bullet_list)
                 self.webview.grab_focus()
                 return True
+            # Bullet List - Ctrl+* (asterisk)
             elif keyval == Gdk.KEY_asterisk:
                 print("CTRL+* pressed")
                 self.is_bullet_list = not self.is_bullet_list
@@ -596,6 +603,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.bullet_btn.set_active(self.is_bullet_list)
                 self.webview.grab_focus()
                 return True
+            # Number List - Ctrl+& (ampersand)
             elif keyval == Gdk.KEY_ampersand:
                 print("CTRL+& pressed")
                 self.is_number_list = not self.is_number_list
@@ -603,7 +611,19 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.number_btn.set_active(self.is_number_list)
                 self.webview.grab_focus()
                 return True
+            # Indent More - Ctrl+Shift+Tab
+            elif keyval == Gdk.KEY_Tab:
+                print("CTRL+SHIFT+TAB pressed - Indent More")
+                self.on_indent_more()
+                return True
+            # Indent Less - Ctrl+Shift+ISO_Left_Tab
+            elif keyval == Gdk.KEY_ISO_Left_Tab:
+                print("CTRL+SHIFT+ISO_Left_Tab pressed - Indent Less")
+                self.on_indent_less()
+                return True
+
         elif not ctrl:
+            # Number List - F12
             if keyval == Gdk.KEY_F12 and not shift:
                 print("F12 pressed")
                 self.is_number_list = not self.is_number_list
@@ -611,6 +631,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.number_btn.set_active(self.is_number_list)
                 self.webview.grab_focus()
                 return True
+            # Bullet List - Shift+F12
             elif keyval == Gdk.KEY_F12 and shift:
                 print("SHIFT+F12 pressed")
                 self.is_bullet_list = not self.is_bullet_list
@@ -618,10 +639,10 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.bullet_btn.set_active(self.is_bullet_list)
                 self.webview.grab_focus()
                 return True
+
         # Update formatting state after any key press that might affect it
         GLib.idle_add(self.update_formatting_state)
         return False
-
     def draw_color_indicator(self, area, cr, width, height, data):
         if area == self.text_color_indicator:
             color = self.current_text_color
@@ -1102,23 +1123,159 @@ class EditorWindow(Adw.ApplicationWindow):
         if 0 <= selected < len(headings):
             self.exec_js(f"document.execCommand('formatBlock', false, '{headings[selected]}')")
     
-    def on_align_left(self, *args): 
-        self.exec_js("document.execCommand('justifyLeft')")
-    
-    def on_align_center(self, *args): 
-        self.exec_js("document.execCommand('justifyCenter')")
-    
-    def on_align_right(self, *args): 
-        self.exec_js("document.execCommand('justifyRight')")
-    
-    def on_align_justify(self, *args): 
-        self.exec_js("document.execCommand('justifyFull')")
-    
-    def on_indent_more(self, *args): 
-        self.exec_js("document.execCommand('indent')")
-    
-    def on_indent_less(self, *args): 
-        self.exec_js("document.execCommand('outdent')")
+    def bind_toolbar_buttons(self):
+        """Explicitly bind toolbar buttons to their handlers"""
+        # Ensure these are called in your __init__ after creating the buttons
+        self.align_left_btn.connect("toggled", self.on_align_left)
+        self.align_center_btn.connect("toggled", self.on_align_center)
+        self.align_right_btn.connect("toggled", self.on_align_right)
+        self.align_justify_btn.connect("toggled", self.on_align_justify)
+        self.indent_more_btn = self.list_group.get_child_at(2)  # Adjust index based on your layout
+        self.indent_less_btn = self.list_group.get_child_at(3)  # Adjust index based on your layout
+        self.indent_more_btn.connect("clicked", self.on_indent_more)
+        self.indent_less_btn.connect("clicked", self.on_indent_less)
+
+    def on_align_left(self, btn=None):
+        if btn and not btn.get_active():  # Ignore if button is being untoggled
+            return
+        self.is_align_left = True
+        self.is_align_center = False
+        self.is_align_right = False
+        self.is_align_justify = False
+        self.apply_alignment('left')
+        self.update_alignment_buttons()
+
+    def on_align_center(self, btn=None):
+        if btn and not btn.get_active():
+            return
+        self.is_align_left = False
+        self.is_align_center = True
+        self.is_align_right = False
+        self.is_align_justify = False
+        self.apply_alignment('center')
+        self.update_alignment_buttons()
+
+    def on_align_right(self, btn=None):
+        if btn and not btn.get_active():
+            return
+        self.is_align_left = False
+        self.is_align_center = False
+        self.is_align_right = True
+        self.is_align_justify = False
+        self.apply_alignment('right')
+        self.update_alignment_buttons()
+
+    def on_align_justify(self, btn=None):
+        if btn and not btn.get_active():
+            return
+        self.is_align_left = False
+        self.is_align_center = False
+        self.is_align_right = False
+        self.is_align_justify = True
+        self.apply_alignment('justify')
+        self.update_alignment_buttons()
+
+    def on_indent_more(self, btn=None):
+        self.exec_js("""
+            try {
+                let sel = window.getSelection();
+                if (!sel.rangeCount) throw new Error('No selection');
+                let range = sel.getRangeAt(0);
+                let block = range.commonAncestorContainer;
+                if (block.nodeType === 3) block = block.parentElement;
+                while (block && !/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/i.test(block.tagName)) {
+                    block = block.parentElement;
+                }
+                if (!block) {
+                    block = document.createElement('p');
+                    range.insertNode(block);
+                }
+                let indent = parseInt(window.getComputedStyle(block).marginLeft) || 0;
+                block.style.marginLeft = (indent + 40) + 'px';
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } catch (e) {
+                console.error('Indent more failed: ' + e.message);
+            }
+        """, self.on_js_error)
+
+    def on_indent_less(self, btn=None):
+        self.exec_js("""
+            try {
+                let sel = window.getSelection();
+                if (!sel.rangeCount) throw new Error('No selection');
+                let range = sel.getRangeAt(0);
+                let block = range.commonAncestorContainer;
+                if (block.nodeType === 3) block = block.parentElement;
+                while (block && !/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/i.test(block.tagName)) {
+                    block = block.parentElement;
+                }
+                if (!block) {
+                    block = document.createElement('p');
+                    range.insertNode(block);
+                }
+                let indent = parseInt(window.getComputedStyle(block).marginLeft) || 0;
+                block.style.marginLeft = Math.max(0, indent - 40) + 'px';
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } catch (e) {
+                console.error('Indent less failed: ' + e.message);
+            }
+        """, self.on_js_error)
+
+    def apply_alignment(self, alignment):
+        script = f"""
+            try {{
+                let sel = window.getSelection();
+                let range = sel.rangeCount ? sel.getRangeAt(0) : null;
+                if (!range) {{
+                    range = document.createRange();
+                    let p = document.querySelector('p') || document.createElement('p');
+                    if (!p.parentNode) {{
+                        p.innerHTML = '\u200B';
+                        document.body.appendChild(p);
+                    }}
+                    range.selectNodeContents(p);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }}
+                let block = range.commonAncestorContainer;
+                if (block.nodeType === 3) block = block.parentElement;
+                while (block && !/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/i.test(block.tagName)) {{
+                    block = block.parentElement;
+                }}
+                if (!block) {{
+                    block = document.createElement('p');
+                    range.insertNode(block);
+                }}
+                block.style.textAlign = '{alignment}';
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }} catch (e) {{
+                console.error('Alignment failed ({alignment}): ' + e.message);
+            }}
+        """
+        self.exec_js(script, self.on_js_error)
+        self.webview.grab_focus()
+
+    def update_alignment_buttons(self):
+        try:
+            self.align_left_btn.set_active(self.is_align_left)
+            self.align_center_btn.set_active(self.is_align_center)
+            self.align_right_btn.set_active(self.is_align_right)
+            self.align_justify_btn.set_active(self.is_align_justify)
+        except AttributeError as e:
+            print(f"Button update failed: {e}")
+
+    def on_js_error(self, webview, result, user_data):
+        try:
+            js_value = webview.evaluate_javascript_finish(result)
+            if js_value and js_value.is_string():
+                print(f"JS Result: {js_value.to_string()}")
+        except Exception as e:
+            print(f"JS Execution Error: {e}")
+        self.webview.grab_focus()
     
     def on_font_family_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
@@ -1403,6 +1560,7 @@ class EditorWindow(Adw.ApplicationWindow):
             self.document_number = EditorWindow.document_counter
             EditorWindow.document_counter += 1
             self.update_title()
+            
     def on_close_document_clicked(self, btn):
         """Handle close document button click - starts new document"""
         if not self.check_save_before_new():
@@ -1479,7 +1637,6 @@ class EditorWindow(Adw.ApplicationWindow):
             self.is_bullet_list = False
             self.bullet_btn.set_active(False)
     def update_formatting_state(self):
-        """Update toggle buttons based on current formatting state at cursor, using computed styles."""
         script = """
             (function() {
                 let sel = window.getSelection();
@@ -1504,12 +1661,13 @@ class EditorWindow(Adw.ApplicationWindow):
             })();
         """
         self.webview.evaluate_javascript(script, -1, None, None, None, self.on_formatting_state_received, None)
+
     def on_formatting_state_received(self, webview, result, user_data):
         try:
             js_value = webview.evaluate_javascript_finish(result)
             if js_value and js_value.is_string():
                 states = json.loads(js_value.to_string())
-                # Update button states only if they differ from user intent
+                # Update button states only if they differ from current state
                 if states.get('bold', False) != self.is_bold:
                     self.is_bold = states['bold']
                     self.bold_btn.set_active(self.is_bold)
@@ -1528,18 +1686,43 @@ class EditorWindow(Adw.ApplicationWindow):
                 if states.get('ol', False) != self.is_number_list:
                     self.is_number_list = states['ol']
                     self.number_btn.set_active(self.is_number_list)
-                if states.get('justifyLeft', False) != self.is_align_left:
-                    self.is_align_left = states['justifyLeft']
-                    self.align_left_btn.set_active(self.is_align_left)
-                if states.get('justifyCenter', False) != self.is_align_center:
-                    self.is_align_center = states['justifyCenter']
-                    self.align_center_btn.set_active(self.is_align_center)
-                if states.get('justifyRight', False) != self.is_align_right:
-                    self.is_align_right = states['justifyRight']
-                    self.align_right_btn.set_active(self.is_align_right)
-                if states.get('justifyFull', False) != self.is_align_justify:
-                    self.is_align_justify = states['justifyFull']
-                    self.align_justify_btn.set_active(self.is_align_justify)
+                # Alignment states
+                if states.get('justifyLeft', False):
+                    self.is_align_left = True
+                    self.is_align_center = False
+                    self.is_align_right = False
+                    self.is_align_justify = False
+                    self.align_left_btn.set_active(True)
+                    self.align_center_btn.set_active(False)
+                    self.align_right_btn.set_active(False)
+                    self.align_justify_btn.set_active(False)
+                elif states.get('justifyCenter', False):
+                    self.is_align_left = False
+                    self.is_align_center = True
+                    self.is_align_right = False
+                    self.is_align_justify = False
+                    self.align_left_btn.set_active(False)
+                    self.align_center_btn.set_active(True)
+                    self.align_right_btn.set_active(False)
+                    self.align_justify_btn.set_active(False)
+                elif states.get('justifyRight', False):
+                    self.is_align_left = False
+                    self.is_align_center = False
+                    self.is_align_right = True
+                    self.is_align_justify = False
+                    self.align_left_btn.set_active(False)
+                    self.align_center_btn.set_active(False)
+                    self.align_right_btn.set_active(True)
+                    self.align_justify_btn.set_active(False)
+                elif states.get('justifyFull', False):
+                    self.is_align_left = False
+                    self.is_align_center = False
+                    self.is_align_right = False
+                    self.is_align_justify = True
+                    self.align_left_btn.set_active(False)
+                    self.align_center_btn.set_active(False)
+                    self.align_right_btn.set_active(False)
+                    self.align_justify_btn.set_active(True)
         except Exception as e:
             print(f"Error updating formatting state: {e}")
 ## /check format state of buttons and shortcuts
