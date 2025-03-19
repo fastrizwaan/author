@@ -1503,13 +1503,14 @@ class EditorWindow(Adw.ApplicationWindow):
         )
 
     def save_html_callback(self, webview, result, file):
-        """Handle HTML content retrieval"""
+        """Handle HTML content retrieval and clean it before saving"""
         try:
             js_value = webview.evaluate_javascript_finish(result)
             if js_value:
-                html = js_value.to_string()
+                raw_html = js_value.to_string()
+                cleaned_html = self.clean_html(raw_html, file)  # Pass the file object for filename
                 file.replace_contents_bytes_async(
-                    GLib.Bytes.new(html.encode()),
+                    GLib.Bytes.new(cleaned_html.encode()),
                     None,
                     False,
                     Gio.FileCreateFlags.REPLACE_DESTINATION,
@@ -1893,7 +1894,109 @@ class EditorWindow(Adw.ApplicationWindow):
         except Exception as e:
             print(f"Error updating formatting state: {e}")
 ## /check format state of buttons and shortcuts
+    def clean_html(self, html, filename=None):
+        """Clean up HTML for HTML5 compliance, removing \u200B, and adding title with filename."""
+        from bs4 import BeautifulSoup
 
+        soup = BeautifulSoup(html, 'html.parser')
+
+        # Replace   and \u200B with regular spaces
+        for text in soup.find_all(string=True):
+            if text.parent.name not in ['style', 'script']:
+                cleaned_text = text.replace('\xa0', ' ').replace('\u200B', '')
+                if cleaned_text != text:
+                    text.replace_with(cleaned_text)
+
+        # Remove spans that are empty or contain only <br>
+        for span in soup.find_all('span'):
+            contents = [child for child in span.contents if not (isinstance(child, str) and child.strip() == '')]
+            if not contents or all(tag.name == 'br' for tag in contents):
+                span.decompose()
+
+        # Fix nested block elements
+        for block in soup.find_all(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote']):
+            nested_blocks = block.find_all(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote'], recursive=False)
+            for nested in nested_blocks:
+                nested.insert_before(*nested.contents)
+                nested.decompose()
+
+        # Consolidate adjacent spans with identical styles
+        def get_style_dict(tag):
+            style = tag.get('style', '')
+            return dict(item.split(': ') for item in style.split(';') if item)
+
+        def spans_are_equivalent(span1, span2):
+            style1 = get_style_dict(span1)
+            style2 = get_style_dict(span2)
+            return (style1.get('font-weight') == style2.get('font-weight') and
+                    style1.get('font-style') == style2.get('font-style') and
+                    style1.get('text-decoration') == style2.get('text-decoration'))
+
+        for block in soup.find_all(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li']):
+            previous_span = None
+            spans = block.find_all('span', recursive=False)
+            i = 0
+            while i < len(spans):
+                span = spans[i]
+                if previous_span and spans_are_equivalent(previous_span, span):
+                    previous_span.string = (previous_span.get_text() + span.get_text())
+                    span.decompose()
+                    spans.pop(i)
+                else:
+                    previous_span = span
+                    i += 1
+
+        # Remove empty spans or spans with no meaningful style
+        for span in soup.find_all('span'):
+            style = get_style_dict(span)
+            text_content = span.get_text().strip()  # No \u200B to preserve now
+            if (not text_content or
+                (style.get('font-weight') in (None, 'normal') and
+                 style.get('font-style') in (None, 'normal') and
+                 style.get('text-decoration') in (None, 'none'))):
+                span.unwrap()
+
+        # Remove empty block elements
+        for block in soup.find_all(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li']):
+            text_content = block.get_text().strip()
+            if not text_content and not block.find_all(recursive=False):
+                block.decompose()
+
+        # Ensure images have required attributes
+        for img in soup.find_all('img'):
+            if 'alt' not in img.attrs:
+                img['alt'] = ''
+            if 'resize' in img.attrs:
+                del img['resize']
+
+        # Extract base filename (without extension) if provided
+        title_text = "Untitled"
+        if filename:
+            path = filename.get_path() if hasattr(filename, 'get_path') else filename
+            if path:
+                import os
+                title_text = os.path.splitext(os.path.basename(path))[0]
+
+        # Construct HTML5 output with title
+        html_output = (
+            '<!DOCTYPE html>\n'
+            '<html>\n'
+            '<head>\n'
+            f'<title>{title_text}</title>\n'  # Add title with base filename
+            '<meta charset="utf-8">\n'
+            '<style>\n'
+            'body { font-family: sans-serif; font-size: 11pt; margin: 20px; line-height: 1.5; }\n'
+            '@media (prefers-color-scheme: dark) { body { background-color: #121212; color: #e0e0e0; } }\n'
+            '@media (prefers-color-scheme: light) { body { background-color: #ffffff; color: #000000; } }\n'
+            'img { max-width: 100%; }\n'
+            '</style>\n'
+            '</head>\n'
+            f'<body>\n{str(soup.body)[6:-7]}\n</body>\n'
+            '</html>'
+        )
+
+        return html_output
+        
 if __name__ == "__main__":
     app = Author()
     app.run()
