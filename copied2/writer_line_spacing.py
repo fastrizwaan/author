@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
 import os
-import json
-import gi
+import gi, json
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('WebKit', '6.0')
-from gi.repository import Gtk, Adw, WebKit, Gio, GLib, Gdk
+gi.require_version('Pango', '1.0')
+gi.require_version('PangoCairo', '1.0')
+from gi.repository import Gtk, Adw, WebKit, Gio, GLib, Pango, PangoCairo, Gdk
+from datetime import datetime
 
 class Writer(Adw.Application):
     def __init__(self):
@@ -24,8 +26,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.set_title("Writer")
         self.set_default_size(1000, 700)
 
-        # State tracking<html>
-
+        # State tracking
         self.is_bold = False
         self.is_italic = False
         self.is_underline = False
@@ -37,7 +38,8 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_align_right = False
         self.is_align_justify = False
         self.current_font = "Sans"
-        self.current_font_size = "11"
+        self.current_font_size = "12"
+        self.current_line_spacing = "1.5"
         
         # Document state
         self.current_file = None
@@ -79,25 +81,12 @@ class EditorWindow(Adw.ApplicationWindow):
 <html>
 <head>
     <style>
-        body { font-family: sans-serif; font-size: 12pt; margin: 20px; line-height: 1.5; }
-        @media (prefers-color-scheme: dark) { body { background-color: #1e1e1e; color: #e0e0e0; } }
+        body { font-family: serif; font-size: 12pt; margin: 20px; line-height: 1.5; }
+        @media (prefers-color-scheme: dark) { body { background-color: #121212; color: #e0e0e0; } }
         @media (prefers-color-scheme: light) { body { background-color: #ffffff; color: #000000; } }
     </style>
-    <meta charset="UTF-8">
-    <title>Editor</title>
-    <style>
-        .content {
-            min-height: 0px;
-            padding: 0px;
-            outline: none;
-            box-sizing: border-box;
-        }
-    </style>
 </head>
-<body>
-    <div class="content" contenteditable="true"><p>\u200B</p></div>
-
-</body>
+<body><p></p></body>
 </html>"""
 
         # Main layout
@@ -146,7 +135,6 @@ class EditorWindow(Adw.ApplicationWindow):
         toolbars_flowbox.insert(file_toolbar_group, -1)
         toolbars_flowbox.insert(formatting_toolbar_group, -1)
 
-
         scroll.set_child(self.webview)
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         content_box.append(toolbars_flowbox)
@@ -188,20 +176,34 @@ class EditorWindow(Adw.ApplicationWindow):
         self.heading_dropdown.add_css_class("flat")
         text_style_group.append(self.heading_dropdown)
 
-        font_store = Gtk.StringList()
-        for name in sorted(["Sans", "Serif", "Monospace"]):
-            font_store.append(name)
+        # Font dropdown using PangoCairo
+        font_map = PangoCairo.FontMap.get_default()
+        families = font_map.list_families()
+        font_names = sorted([family.get_name() for family in families])
+        font_store = Gtk.StringList(strings=font_names)
         self.font_dropdown = Gtk.DropDown(model=font_store)
+        default_font_index = font_names.index("Sans") if "Sans" in font_names else 0
+        self.font_dropdown.set_selected(default_font_index)
         self.font_dropdown_handler = self.font_dropdown.connect("notify::selected", self.on_font_family_changed)
         self.font_dropdown.add_css_class("flat")
         text_style_group.append(self.font_dropdown)
 
-        size_store = Gtk.StringList()
-        for size in ["6", "7", "8", "9", "10", "10.5", "11", "12", "13", "14", "15", "16", "18", "20", "21", "22", "24", "26", "28", "32", "36", "40", "42", "44", "48", "54", "60", "66", "72", "80", "88", "96"]:
-
-            size_store.append(size)
+        # Size dropdown - using WebKit-compatible size indices mapped to pixels
+        self.size_map = {
+            "6": "1",   # xx-small
+            "8": "1",
+            "10": "2",  # small
+            "12": "3",  # medium
+            "14": "3",
+            "16": "4",  # large
+            "18": "4",
+            "24": "5",  # x-large
+            "36": "6"   # xx-large
+            # Note: WebKit uses 1-7 scale, 7 would be xxx-large
+        }
+        size_store = Gtk.StringList(strings=list(self.size_map.keys()))
         self.size_dropdown = Gtk.DropDown(model=size_store)
-        self.size_dropdown.set_selected(6)  # 11pt
+        self.size_dropdown.set_selected(3)  # Default to 12
         self.size_dropdown_handler = self.size_dropdown.connect("notify::selected", self.on_font_size_changed)
         self.size_dropdown.add_css_class("flat")
         text_style_group.append(self.size_dropdown)
@@ -226,6 +228,15 @@ class EditorWindow(Adw.ApplicationWindow):
         self.strikethrough_btn.connect("toggled", self.on_strikethrough_toggled)
         text_format_group.append(self.strikethrough_btn)
 
+        # Line spacing dropdown - Added
+        line_spacing_options = ["1.0", "1.15", "1.5", "2.0", "2.5", "3.0"]
+        line_spacing_store = Gtk.StringList(strings=line_spacing_options)
+        self.line_spacing_dropdown = Gtk.DropDown(model=line_spacing_store)
+        self.line_spacing_dropdown.set_selected(0)  # Default to 1.0
+        self.line_spacing_handler = self.line_spacing_dropdown.connect("notify::selected", self.on_line_spacing_changed)
+        self.line_spacing_dropdown.add_css_class("flat")
+        text_format_group.append(self.line_spacing_dropdown)
+        
         self.align_left_btn = Gtk.ToggleButton(icon_name="format-justify-left")
         self.align_left_btn.add_css_class("flat")
         self.align_left_btn.connect("toggled", self.on_align_left)
@@ -270,7 +281,6 @@ class EditorWindow(Adw.ApplicationWindow):
         self.webview.add_controller(key_controller)
         key_controller.connect("key-pressed", self.on_key_pressed)
 
-
         self.connect("close-request", self.on_close_request)
 
     def on_content_changed_js(self, manager, js_result):
@@ -312,29 +322,38 @@ class EditorWindow(Adw.ApplicationWindow):
                     document.addEventListener('cut', notifyChange);
 
                     const notifySelectionChange = debounce(function() {
-                        const state = {
-                            bold: document.queryCommandState('bold'),
-                            italic: document.queryCommandState('italic'),
-                            underline: document.queryCommandState('underline'),
-                            strikethrough: document.queryCommandState('strikethrough'),
-                            formatBlock: document.queryCommandValue('formatBlock') || 'p',
-                            fontName: document.queryCommandValue('fontName') || 'Serif',
-                            fontSize: document.queryCommandValue('fontSize') || '3',
-                            insertUnorderedList: document.queryCommandState('insertUnorderedList'),
-                            insertOrderedList: document.queryCommandState('insertOrderedList'),
-                            justifyLeft: document.queryCommandState('justifyLeft'),
-                            justifyCenter: document.queryCommandState('justifyCenter'),
-                            justifyRight: document.queryCommandState('justifyRight'),
-                            justifyFull: document.queryCommandState('justifyFull')
-                        };
-                        window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
+                        const sel = window.getSelection();
+                        if (sel.rangeCount > 0) {
+                            const range = sel.getRangeAt(0);
+                            let element = range.startContainer;
+                            if (element.nodeType === Node.TEXT_NODE) {
+                                element = element.parentElement;
+                            }
+                            const style = window.getComputedStyle(element);
+                            const state = {
+                                bold: document.queryCommandState('bold'),
+                                italic: document.queryCommandState('italic'),
+                                underline: document.queryCommandState('underline'),
+                                strikethrough: document.queryCommandState('strikethrough'),
+                                formatBlock: document.queryCommandValue('formatBlock') || 'p',
+                                fontName: style.fontFamily.split(',')[0].replace(/['"]/g, ''),
+                                fontSize: style.fontSize,
+                                insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+                                insertOrderedList: document.queryCommandState('insertOrderedList'),
+                                justifyLeft: document.queryCommandState('justifyLeft'),
+                                justifyCenter: document.queryCommandState('justifyCenter'),
+                                justifyRight: document.queryCommandState('justifyRight'),
+                                justifyFull: document.queryCommandState('justifyFull'),
+                                lineHeight: style.lineHeight === 'normal' ? '1.0' : (parseFloat(style.lineHeight) / parseFloat(style.fontSize)).toFixed(2)
+                            };
+                            window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
+                        }
                     }, 100);
                     document.addEventListener('selectionchange', notifySelectionChange);
-                    notifySelectionChange(); // Initial state
+                    notifySelectionChange();
                 })();
             """, -1, None, None, None, None, None)
             GLib.idle_add(self.webview.grab_focus)
-
 
     def on_selection_changed(self, user_content, message):
         if message.is_string():
@@ -405,22 +424,42 @@ class EditorWindow(Adw.ApplicationWindow):
             self.font_dropdown.set_selected(selected_font_index)
             self.font_dropdown.handler_unblock(self.font_dropdown_handler)
 
-            # Font size detection (convert px to pt)
-            detected_size_px = float(state.get('fontSize', '11'))
-            # Convert px to pt (approx: 1pt = 1.333px)
-            detected_size_pt = str(round(detected_size_px / 1.333))
+            # Font size detection
+            font_size_str = state.get('fontSize', '12pt')
+            if font_size_str.endswith('px'):
+                font_size_px = float(font_size_str[:-2])
+                font_size_pt = str(int(font_size_px / 1.333))
+            elif font_size_str.endswith('pt'):
+                font_size_pt = font_size_str[:-2]
+            else:
+                font_size_pt = '12'
             size_store = self.size_dropdown.get_model()
-            selected_size_index = 6  # Default to 11pt
-            for i in range(size_store.get_n_items()):
-                if size_store.get_string(i) == detected_size_pt:
-                    selected_size_index = i
-                    self.current_font_size = detected_size_pt
-                    break
+            available_sizes = [size_store.get_string(i) for i in range(size_store.get_n_items())]
+            selected_size_index = 3
+            if font_size_pt in available_sizes:
+                selected_size_index = available_sizes.index(font_size_pt)
+            self.current_font_size = available_sizes[selected_size_index]
             self.size_dropdown.handler_block(self.size_dropdown_handler)
             self.size_dropdown.set_selected(selected_size_index)
             self.size_dropdown.handler_unblock(self.size_dropdown_handler)
+
+            # Line spacing - Added
+            detected_line_spacing = state.get('lineHeight', '1.0')
+            line_spacing_store = self.line_spacing_dropdown.get_model()
+            available_spacings = [line_spacing_store.get_string(i) for i in range(line_spacing_store.get_n_items())]
+            selected_spacing_index = 0
+            detected_float = float(detected_line_spacing)
+            min_diff = float('inf')
+            for i, spacing in enumerate(available_spacings):
+                diff = abs(float(spacing) - detected_float)
+                if diff < min_diff:
+                    min_diff = diff
+                    selected_spacing_index = i
+            self.current_line_spacing = available_spacings[selected_spacing_index]
+            self.line_spacing_dropdown.handler_block(self.line_spacing_handler)
+            self.line_spacing_dropdown.set_selected(selected_spacing_index)
+            self.line_spacing_dropdown.handler_unblock(self.line_spacing_handler)
         else:
-            # When called without state, just update dropdowns with current values
             font_store = self.font_dropdown.get_model()
             selected_font_index = 0
             for i in range(font_store.get_n_items()):
@@ -432,7 +471,7 @@ class EditorWindow(Adw.ApplicationWindow):
             self.font_dropdown.handler_unblock(self.font_dropdown_handler)
 
             size_store = self.size_dropdown.get_model()
-            selected_size_index = 6  # Default to 11pt
+            selected_size_index = 3
             for i in range(size_store.get_n_items()):
                 if size_store.get_string(i) == self.current_font_size:
                     selected_size_index = i
@@ -441,6 +480,16 @@ class EditorWindow(Adw.ApplicationWindow):
             self.size_dropdown.set_selected(selected_size_index)
             self.size_dropdown.handler_unblock(self.size_dropdown_handler)
 
+            # Line spacing - Added
+            line_spacing_store = self.line_spacing_dropdown.get_model()
+            selected_spacing_index = 0
+            for i in range(line_spacing_store.get_n_items()):
+                if line_spacing_store.get_string(i) == self.current_line_spacing:
+                    selected_spacing_index = i
+                    break
+            self.line_spacing_dropdown.handler_block(self.line_spacing_handler)
+            self.line_spacing_dropdown.set_selected(selected_spacing_index)
+            self.line_spacing_dropdown.handler_unblock(self.line_spacing_handler)
 
     def exec_js(self, script):
         self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
@@ -699,6 +748,12 @@ class EditorWindow(Adw.ApplicationWindow):
             elif keyval == Gdk.KEY_M:
                 self.on_indent_less(None)
                 return True
+            elif keyval == Gdk.KEY_H:  # Added Ctrl+Shift+H for line spacing
+                current_index = self.line_spacing_dropdown.get_selected()
+                next_index = (current_index + 1) % self.line_spacing_dropdown.get_model().get_n_items()
+                self.line_spacing_dropdown.set_selected(next_index)
+                self.on_line_spacing_changed(self.line_spacing_dropdown)
+                return True  
         elif not ctrl:
             if keyval == Gdk.KEY_F12 and not shift:
                 self.on_number_list_toggled(self.number_btn)
@@ -708,11 +763,96 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
         return False
 
+    def on_line_spacing_changed(self, dropdown, *args):
+        if item := dropdown.get_selected_item():
+            self.current_line_spacing = item.get_string()
+            script = f"""
+                (function() {{
+                    let sel = window.getSelection();
+                    let range = sel.rangeCount > 0 ? sel.getRangeAt(0) : document.createRange();
+                    let node = range.startContainer || document.body;
+                    let originalOffset = range.startOffset;
+
+                    // Store cursor position relative to the start container
+                    let cursorNode = range.startContainer;
+                    let cursorOffset = range.startOffset;
+
+                    // If node is text, get its parent
+                    if (node.nodeType === Node.TEXT_NODE) {{
+                        node = node.parentElement;
+                    }}
+
+                    // Find the nearest block-level parent (p, div, h1-h6)
+                    let block = node.closest('p, div, h1, h2, h3, h4, h5, h6');
+
+                    if (!block || block === document.body) {{
+                        // If no block found or in body, wrap loose text or create new paragraph
+                        let newParagraph = document.createElement('p');
+                        newParagraph.style.lineHeight = '{self.current_line_spacing}';
+
+                        if (node === document.body && sel.rangeCount > 0) {{
+                            // If cursor is in loose text in body
+                            let textNode = range.startContainer;
+                            if (textNode.nodeType === Node.TEXT_NODE) {{
+                                range.selectNode(textNode);
+                                range.surroundContents(newParagraph);
+                                // Restore cursor position after wrapping
+                                range.setStart(cursorNode, cursorOffset);
+                                range.setEnd(cursorNode, cursorOffset);
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                            }} else {{
+                                // Insert new paragraph at cursor position
+                                range.insertNode(newParagraph);
+                                range.setStart(newParagraph, 0);
+                                range.setEnd(newParagraph, 0);
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                            }}
+                        }} else if (node === document.body) {{
+                            // If no selection, insert at cursor
+                            range.insertNode(newParagraph);
+                            range.setStart(newParagraph, 0);
+                            range.setEnd(newParagraph, 0);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        }}
+                    }} else {{
+                        // Apply to existing block
+                        block.style.lineHeight = '{self.current_line_spacing}';
+                        
+                        // Restore cursor position in the block
+                        if (sel.rangeCount > 0) {{
+                            range.setStart(cursorNode, cursorOffset);
+                            range.setEnd(cursorNode, cursorOffset);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        }}
+                    }}
+
+                    // If cursor is between paragraphs, apply to previous paragraph
+                    if (!block && sel.isCollapsed && range.startContainer === document.body) {{
+                        let previousSibling = range.startContainer.childNodes[range.startOffset - 1];
+                        if (previousSibling && previousSibling.nodeName.match(/^(P|DIV|H[1-6])$/i)) {{
+                            previousSibling.style.lineHeight = '{self.current_line_spacing}';
+                            // Restore cursor position after previous sibling
+                            range.setStart(cursorNode, cursorOffset);
+                            range.setEnd(cursorNode, cursorOffset);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        }}
+                    }}
+
+                    // Trigger content change notification
+                    window.webkit.messageHandlers.contentChanged.postMessage('changed');
+                }})();
+            """
+            self.exec_js(script)
+            self.update_formatting_ui()
     def exec_js_with_result(self, js_code, callback):
         if hasattr(self.webview, 'run_javascript'):
             self.webview.run_javascript(js_code, None, callback, None)
         else:
-            # Call callback with appropriate dummy arguments
             callback(self.webview, None, None)
 
     def on_bold_toggled(self, btn):
@@ -726,18 +866,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None and hasattr(result, 'get_js_value'):
                     bold_state = webview.run_javascript_finish(result).get_js_value().to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     bold_state = not self.is_bold if hasattr(self, 'is_bold') else btn.get_active()
                     
                 self.is_bold = bold_state
                 self.bold_btn.handler_block_by_func(self.on_bold_toggled)
                 self.bold_btn.set_active(self.is_bold)
                 self.bold_btn.handler_unblock_by_func(self.on_bold_toggled)
-                print(f"Final bold state: {self.is_bold}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in bold state callback: {e}")
-                # Fallback on error
                 self.is_bold = not self.is_bold if hasattr(self, 'is_bold') else btn.get_active()
                 self.bold_btn.handler_block_by_func(self.on_bold_toggled)
                 self.bold_btn.set_active(self.is_bold)
@@ -759,18 +896,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None and hasattr(result, 'get_js_value'):
                     italic_state = webview.run_javascript_finish(result).get_js_value().to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     italic_state = not self.is_italic if hasattr(self, 'is_italic') else btn.get_active()
                     
                 self.is_italic = italic_state
                 self.italic_btn.handler_block_by_func(self.on_italic_toggled)
                 self.italic_btn.set_active(self.is_italic)
                 self.italic_btn.handler_unblock_by_func(self.on_italic_toggled)
-                print(f"Final italic state: {self.is_italic}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in italic state callback: {e}")
-                # Fallback on error
                 self.is_italic = not self.is_italic if hasattr(self, 'is_italic') else btn.get_active()
                 self.italic_btn.handler_block_by_func(self.on_italic_toggled)
                 self.italic_btn.set_active(self.is_italic)
@@ -792,18 +926,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None and hasattr(result, 'get_js_value'):
                     underline_state = webview.run_javascript_finish(result).get_js_value().to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     underline_state = not self.is_underline if hasattr(self, 'is_underline') else btn.get_active()
                     
                 self.is_underline = underline_state
                 self.underline_btn.handler_block_by_func(self.on_underline_toggled)
                 self.underline_btn.set_active(self.is_underline)
                 self.underline_btn.handler_unblock_by_func(self.on_underline_toggled)
-                print(f"Final underline state: {self.is_underline}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in underline state callback: {e}")
-                # Fallback on error
                 self.is_underline = not self.is_underline if hasattr(self, 'is_underline') else btn.get_active()
                 self.underline_btn.handler_block_by_func(self.on_underline_toggled)
                 self.underline_btn.set_active(self.is_underline)
@@ -825,18 +956,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None and hasattr(result, 'get_js_value'):
                     strikethrough_state = webview.run_javascript_finish(result).get_js_value().to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     strikethrough_state = not self.is_strikethrough if hasattr(self, 'is_strikethrough') else btn.get_active()
                     
                 self.is_strikethrough = strikethrough_state
                 self.strikethrough_btn.handler_block_by_func(self.on_strikethrough_toggled)
                 self.strikethrough_btn.set_active(self.is_strikethrough)
                 self.strikethrough_btn.handler_unblock_by_func(self.on_strikethrough_toggled)
-                print(f"Final strikethrough state: {self.is_strikethrough}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in strikethrough state callback: {e}")
-                # Fallback on error
                 self.is_strikethrough = not self.is_strikethrough if hasattr(self, 'is_strikethrough') else btn.get_active()
                 self.strikethrough_btn.handler_block_by_func(self.on_strikethrough_toggled)
                 self.strikethrough_btn.set_active(self.is_strikethrough)
@@ -858,7 +986,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     bullet_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     bullet_state = not self.is_bullet_list if hasattr(self, 'is_bullet_list') else btn.get_active()
                     
                 self.is_bullet_list = bullet_state
@@ -866,18 +993,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.bullet_btn.set_active(self.is_bullet_list)
                 self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
                 
-                # If bullet list is active, deactivate numbered list
                 if self.is_bullet_list:
                     self.is_number_list = False
                     self.number_btn.handler_block_by_func(self.on_number_list_toggled)
                     self.number_btn.set_active(False)
                     self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
                     
-                print(f"Final bullet list state: {self.is_bullet_list}, Numbered list state: {self.is_number_list}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in bullet list state callback: {e}")
-                # Fallback on error
                 self.is_bullet_list = not self.is_bullet_list if hasattr(self, 'is_bullet_list') else btn.get_active()
                 self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
                 self.bullet_btn.set_active(self.is_bullet_list)
@@ -899,7 +1023,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     number_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     number_state = not self.is_number_list if hasattr(self, 'is_number_list') else btn.get_active()
                     
                 self.is_number_list = number_state
@@ -907,18 +1030,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.number_btn.set_active(self.is_number_list)
                 self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
                 
-                # If numbered list is active, deactivate bullet list
                 if self.is_number_list:
                     self.is_bullet_list = False
                     self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
                     self.bullet_btn.set_active(False)
                     self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
                     
-                print(f"Final number list state: {self.is_number_list}, Bullet list state: {self.is_bullet_list}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in number list state callback: {e}")
-                # Fallback on error
                 self.is_number_list = not self.is_number_list if hasattr(self, 'is_number_list') else btn.get_active()
                 self.number_btn.handler_block_by_func(self.on_number_list_toggled)
                 self.number_btn.set_active(self.is_number_list)
@@ -944,84 +1064,18 @@ class EditorWindow(Adw.ApplicationWindow):
     def on_font_family_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
             self.current_font = item.get_string()
-            self.apply_font_and_size_to_typing()
-            self.update_formatting_ui()
-
-    def on_font_family_changed(self, dropdown, *args):
-        if item := dropdown.get_selected_item():
-            self.current_font = item.get_string()
-            self.apply_font_and_size_to_typing()
+            self.exec_js(f"document.execCommand('fontName', false, '{self.current_font}')")
             self.update_formatting_ui()
 
     def on_font_size_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
-            self.current_font_size = item.get_string()
-            self.apply_font_and_size_to_typing()
+            size_key = item.get_string()
+            webkit_size = self.size_map[size_key]
+            self.current_font_size = size_key
+            script = f"document.execCommand('fontSize', false, '{webkit_size}')"
+            self.exec_js(script)
             self.update_formatting_ui()
-            
-    def apply_font_and_size_to_typing(self):
-        script = f"""
-            (function() {{
-                let currentFont = '{self.current_font}';
-                let currentFontSize = '{self.current_font_size}';
-                let sel = window.getSelection();
-                if (!sel.rangeCount) return;
-                let range = sel.getRangeAt(0);
-                if (range.collapsed) {{
-                    // No selection, set styles for new text
-                    let span = document.createElement('span');
-                    span.style.fontFamily = currentFont;
-                    span.style.fontSize = currentFontSize + 'pt';
-                    span.innerHTML = '\\u200B'; // Zero-width space to hold cursor
-                    range.insertNode(span);
-                    range.setStart(span.firstChild, 1);
-                    range.setEnd(span.firstChild, 1);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                }} else {{
-                    // Selection exists, apply to selected text
-                    document.execCommand('fontName', false, currentFont);
-                    let wrapper = document.createElement('span');
-                    wrapper.style.fontSize = currentFontSize + 'pt';
-                    try {{
-                        range.surroundContents(wrapper);
-                    }} catch (e) {{
-                        console.log("Cannot surround range: " + e);
-                        // Fallback for complex selections
-                        let nodes = getTextNodesInRange(range);
-                        nodes.forEach(node => {{
-                            let span = document.createElement('span');
-                            span.style.fontSize = currentFontSize + 'pt';
-                            node.parentNode.insertBefore(span, node);
-                            span.appendChild(node);
-                        }});
-                    }}
-                }}
 
-                // Helper function to get text nodes within the selection
-                function getTextNodesInRange(range) {{
-                    let walker = document.createTreeWalker(
-                        range.commonAncestorContainer,
-                        NodeFilter.SHOW_TEXT,
-                        {{
-                            acceptNode: function(node) {{
-                                if (range.intersectsNode(node)) {{
-                                    return NodeFilter.FILTER_ACCEPT;
-                                }}
-                            }}
-                        }}
-                    );
-                    let nodes = [];
-                    let node;
-                    while (node = walker.nextNode()) {{
-                        nodes.push(node);
-                    }}
-                    return nodes;
-                }}
-            }})();
-        """
-        self.exec_js(script)
-        
     def on_align_left(self, btn):
         if hasattr(self, '_processing_align_left') and self._processing_align_left:
             return
@@ -1033,7 +1087,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     align_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     align_state = not self.is_align_left if hasattr(self, 'is_align_left') else btn.get_active()
                     
                 self.is_align_left = align_state
@@ -1041,7 +1094,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.align_left_btn.set_active(self.is_align_left)
                 self.align_left_btn.handler_unblock_by_func(self.on_align_left)
                 
-                # If left align is active, deactivate others
                 if self.is_align_left:
                     self.is_align_center = False
                     self.align_center_btn.handler_block_by_func(self.on_align_center)
@@ -1058,11 +1110,9 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_justify_btn.set_active(False)
                     self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
                     
-                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in align left state callback: {e}")
-                # Fallback on error
                 self.is_align_left = not self.is_align_left if hasattr(self, 'is_align_left') else btn.get_active()
                 self.align_left_btn.handler_block_by_func(self.on_align_left)
                 self.align_left_btn.set_active(self.is_align_left)
@@ -1084,7 +1134,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     align_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     align_state = not self.is_align_center if hasattr(self, 'is_align_center') else btn.get_active()
                     
                 self.is_align_center = align_state
@@ -1092,7 +1141,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.align_center_btn.set_active(self.is_align_center)
                 self.align_center_btn.handler_unblock_by_func(self.on_align_center)
                 
-                # If center align is active, deactivate others
                 if self.is_align_center:
                     self.is_align_left = False
                     self.align_left_btn.handler_block_by_func(self.on_align_left)
@@ -1109,11 +1157,9 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_justify_btn.set_active(False)
                     self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
                     
-                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in align center state callback: {e}")
-                # Fallback on error
                 self.is_align_center = not self.is_align_center if hasattr(self, 'is_align_center') else btn.get_active()
                 self.align_center_btn.handler_block_by_func(self.on_align_center)
                 self.align_center_btn.set_active(self.is_align_center)
@@ -1135,7 +1181,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     align_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     align_state = not self.is_align_right if hasattr(self, 'is_align_right') else btn.get_active()
                     
                 self.is_align_right = align_state
@@ -1143,7 +1188,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.align_right_btn.set_active(self.is_align_right)
                 self.align_right_btn.handler_unblock_by_func(self.on_align_right)
                 
-                # If right align is active, deactivate others
                 if self.is_align_right:
                     self.is_align_left = False
                     self.align_left_btn.handler_block_by_func(self.on_align_left)
@@ -1160,11 +1204,9 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_justify_btn.set_active(False)
                     self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
                     
-                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in align right state callback: {e}")
-                # Fallback on error
                 self.is_align_right = not self.is_align_right if hasattr(self, 'is_align_right') else btn.get_active()
                 self.align_right_btn.handler_block_by_func(self.on_align_right)
                 self.align_right_btn.set_active(self.is_align_right)
@@ -1186,7 +1228,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     align_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     align_state = not self.is_align_justify if hasattr(self, 'is_align_justify') else btn.get_active()
                     
                 self.is_align_justify = align_state
@@ -1194,7 +1235,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.align_justify_btn.set_active(self.is_align_justify)
                 self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
                 
-                # If justify align is active, deactivate others
                 if self.is_align_justify:
                     self.is_align_left = False
                     self.align_left_btn.handler_block_by_func(self.on_align_left)
@@ -1211,11 +1251,9 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_right_btn.set_active(False)
                     self.align_right_btn.handler_unblock_by_func(self.on_align_right)
                     
-                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in align justify state callback: {e}")
-                # Fallback on error
                 self.is_align_justify = not self.is_align_justify if hasattr(self, 'is_align_justify') else btn.get_active()
                 self.align_justify_btn.handler_block_by_func(self.on_align_justify)
                 self.align_justify_btn.set_active(self.is_align_justify)
@@ -1283,224 +1321,6 @@ class EditorWindow(Adw.ApplicationWindow):
     def clear_ignore_changes(self):
         self.ignore_changes = False
         return False
-
-##########################
-    def on_webview_load(self, webview, load_event):
-        if load_event == WebKit.LoadEvent.FINISHED:
-            self.webview.evaluate_javascript("""
-                (function() {
-                    let p = document.querySelector('p');
-                    if (p) {
-                        let range = document.createRange();
-                        range.setStart(p, 0);
-                        range.setEnd(p, 0);
-                        let sel = window.getSelection();
-                        sel.removeAllRanges();
-                        sel.addRange(range);
-                    }
-
-                    // Inject CSS to hide native caret and style custom caret
-                    let style = document.createElement('style');
-                    style.textContent = `
-                        body[contenteditable], [contenteditable="true"] {
-                            caret-color: transparent !important;
-                            -webkit-user-select: text;
-                        }
-                        .custom-caret {
-                            position: absolute;
-                            width: 1.2px; /* Reduced from 2px */
-                            background-color: black;
-                            animation: blink 1s step-end infinite;
-                            pointer-events: none;
-                            z-index: 1000;
-                        }
-                        .custom-caret.no-blink {
-                            animation: none;
-                        }
-                        @keyframes blink {
-                            50% { opacity: 0; }
-                        }
-                        @media (prefers-color-scheme: dark) {
-                            .custom-caret { background-color: #e0e0e0; }
-                        }
-                    `;
-                    document.head.appendChild(style);
-
-                    // Create custom caret element
-                    let customCaret = document.createElement('span');
-                    customCaret.className = 'custom-caret';
-                    document.body.appendChild(customCaret);
-
-                    // Fallback: Force hide native caret via JavaScript
-                    document.body.style.caretColor = 'transparent';
-
-                    function debounce(func, wait) {
-                        let timeout;
-                        return function(...args) {
-                            clearTimeout(timeout);
-                            timeout = setTimeout(() => func(...args), wait);
-                        };
-                    }
-
-                    let isTyping = false;
-                    let typingTimeout;
-
-                    let lastContent = document.body.innerHTML;
-                    const notifyChange = debounce(function() {
-                        let currentContent = document.body.innerHTML;
-                        if (currentContent !== lastContent) {
-                            window.webkit.messageHandlers.contentChanged.postMessage('changed');
-                            lastContent = currentContent;
-                        }
-                    }, 250);
-
-                    const updateCaret = function() {
-                        const sel = window.getSelection();
-                        const state = {
-                            bold: document.queryCommandState('bold'),
-                            italic: document.queryCommandState('italic'),
-                            underline: document.queryCommandState('underline'),
-                            strikethrough: document.queryCommandState('strikethrough'),
-                            formatBlock: document.queryCommandValue('formatBlock') || 'p',
-                            fontName: document.queryCommandValue('fontName') || 'Serif',
-                            fontSize: document.queryCommandValue('fontSize') || '3',
-                            insertUnorderedList: document.queryCommandState('insertUnorderedList'),
-                            insertOrderedList: document.queryCommandState('insertOrderedList'),
-                            justifyLeft: document.queryCommandState('justifyLeft'),
-                            justifyCenter: document.queryCommandState('justifyCenter'),
-                            justifyRight: document.queryCommandState('justifyRight'),
-                            justifyFull: document.queryCommandState('justifyFull')
-                        };
-                        window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
-
-                        if (sel.rangeCount > 0) {
-                            let range = sel.getRangeAt(0);
-                            let rects = range.getClientRects();
-                            let fontSize = '11pt'; // Default
-                            let node = range.startContainer;
-
-                            if (node.nodeType === 3) { // Text node
-                                fontSize = window.getComputedStyle(node.parentElement).fontSize || '11pt';
-                            } else if (node.nodeType === 1) { // Element node
-                                fontSize = window.getComputedStyle(node).fontSize || '11pt';
-                            }
-
-                            if (rects.length > 0) {
-                                let rect = rects[0];
-                                let fontSizePx = parseFloat(fontSize); // Convert to number (e.g., "20pt" -> 20)
-                                let caretHeight = fontSizePx * 1.3; // 30% bigger for size + descenders
-                                let offset = caretHeight / 2; // Half the caret height for centering
-                                customCaret.style.height = caretHeight + 'pt';
-                                customCaret.style.left = (rect.left + window.scrollX) + 'px';
-                                customCaret.style.top = (rect.top + window.scrollY - offset + fontSizePx * 0.5) + 'px'; // Extended for descenders
-                                customCaret.style.display = 'block';
-
-                                // Control blinking based on typing state
-                                if (isTyping) {
-                                    customCaret.classList.add('no-blink');
-                                } else {
-                                    customCaret.classList.remove('no-blink');
-                                }
-                            } else {
-                                customCaret.style.display = 'none'; // Hide if no valid position
-                            }
-                        } else {
-                            customCaret.style.display = 'none'; // Hide if no selection
-                        }
-                    };
-
-                    const debouncedUpdateCaret = debounce(updateCaret, 50);
-
-                    // Typing handling
-                    document.addEventListener('input', function() {
-                        isTyping = true;
-                        clearTimeout(typingTimeout);
-                        updateCaret(); // Immediate update during typing
-                        notifyChange();
-                        typingTimeout = setTimeout(() => {
-                            isTyping = false;
-                            updateCaret(); // Update when typing stops
-                        }, 250);
-                    });
-
-                    document.addEventListener('paste', notifyChange);
-                    document.addEventListener('cut', notifyChange);
-                    document.addEventListener('selectionchange', debouncedUpdateCaret);
-                    document.addEventListener('keyup', debouncedUpdateCaret);
-                    document.addEventListener('click', debouncedUpdateCaret);
-                    updateCaret(); // Initial call
-                })();
-            """, -1, None, None, None, None, None)
-            GLib.idle_add(self.webview.grab_focus)
-
-    def apply_font_and_size_to_typing(self):
-        script = f"""
-            (function() {{
-                let currentFont = '{self.current_font}';
-                let currentFontSize = '{self.current_font_size}';
-                let sel = window.getSelection();
-                if (!sel.rangeCount) return;
-                let range = sel.getRangeAt(0);
-                if (range.collapsed) {{
-                    // No selection, set styles for new text
-                    let span = document.createElement('span');
-                    span.style.fontFamily = currentFont;
-                    span.style.fontSize = currentFontSize + 'pt';
-                    span.innerHTML = '\\u200B'; // Zero-width space to hold cursor
-                    range.insertNode(span);
-                    range.setStart(span.firstChild, 1);
-                    range.setEnd(span.firstChild, 1);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                }} else {{
-                    // Selection exists, apply to selected text
-                    document.execCommand('fontName', false, currentFont);
-                    let wrapper = document.createElement('span');
-                    wrapper.style.fontSize = currentFontSize + 'pt';
-                    try {{
-                        range.surroundContents(wrapper);
-                    }} catch (e) {{
-                        console.log("Cannot surround range: " + e);
-                        // Fallback for complex selections
-                        let nodes = getTextNodesInRange(range);
-                        nodes.forEach(node => {{
-                            let span = document.createElement('span');
-                            span.style.fontSize = currentFontSize + 'pt';
-                            node.parentNode.insertBefore(span, node);
-                            span.appendChild(node);
-                        }});
-                    }}
-                }}
-
-                // Trigger selection update to reposition custom caret
-                window.getSelection().removeAllRanges();
-                window.getSelection().addRange(range);
-
-                // Helper function to get text nodes within the selection
-                function getTextNodesInRange(range) {{
-                    let walker = document.createTreeWalker(
-                        range.commonAncestorContainer,
-                        NodeFilter.SHOW_TEXT,
-                        {{
-                            acceptNode: function(node) {{
-                                if (range.intersectsNode(node)) {{
-                                    return NodeFilter.FILTER_ACCEPT;
-                                }}
-                            }}
-                        }}
-                    );
-                    let nodes = [];
-                    let node;
-                    while (node = walker.nextNode()) {{
-                        nodes.push(node);
-                    }}
-                    return nodes;
-                }}
-            }})();
-        """
-        self.exec_js(script)
-
-
 
 if __name__ == "__main__":
     app = Writer()

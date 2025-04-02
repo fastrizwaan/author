@@ -29,6 +29,7 @@ class Author(Adw.Application):
 
 class EditorWindow(Adw.ApplicationWindow):
     document_counter = 1
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.set_title("Author")
@@ -96,13 +97,25 @@ class EditorWindow(Adw.ApplicationWindow):
 <html>
 <head>
     <style>
-        body { font-family: sans-serif; font-size: 11pt; margin: 20px; line-height: 1.5; }
-        @media (prefers-color-scheme: dark) { body { background-color: #121212; color: #e0e0e0; } }
+        body { font-family: sans-serif; font-size: 12pt; margin: 20px; line-height: 1.5; }
+        @media (prefers-color-scheme: dark) { body { background-color: #1e1e1e; color: #e0e0e0; } }
         @media (prefers-color-scheme: light) { body { background-color: #ffffff; color: #000000; } }
-        img { max-width: 100%; resize: both; }
+    </style>
+    <meta charset="UTF-8">
+    <title>Editor</title>
+    <style>
+        .content {
+            min-height: 0px;
+            padding: 0px;
+            outline: none;
+            box-sizing: border-box;
+        }
     </style>
 </head>
-<body><p>&#8203;</p></body>
+<body>
+    <div class="content" contenteditable="true"><p>\u200B</p></div>
+
+</body>
 </html>"""
 
         # Main layout
@@ -227,10 +240,10 @@ class EditorWindow(Adw.ApplicationWindow):
         heading_store = Gtk.StringList()
         for h in ["Normal", "H1", "H2", "H3", "H4", "H5", "H6"]:
             heading_store.append(h)
-        heading_dropdown = Gtk.DropDown(model=heading_store)
-        heading_dropdown.connect("notify::selected", self.on_heading_changed)
-        heading_dropdown.add_css_class("flat")
-        text_style_group.append(heading_dropdown)
+        self.heading_dropdown = Gtk.DropDown(model=heading_store)
+        self.heading_dropdown.connect("notify::selected", self.on_heading_changed)
+        self.heading_dropdown.add_css_class("flat")
+        text_style_group.append(self.heading_dropdown)
 
         font_map = PangoCairo.FontMap.get_default()
         families = font_map.list_families()
@@ -562,6 +575,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.text_color_indicator.queue_draw()
                 color = rgba.to_string()
                 self.exec_js(f"document.execCommand('foreColor', false, '{color}')")
+                self.update_formatting_state()
         except GLib.Error as e:
             print("Text color selection error:", e.message)
 
@@ -579,6 +593,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.bg_color_indicator.queue_draw()
                 color = rgba.to_string()
                 self.exec_js(f"document.execCommand('backColor', false, '{color}')")
+                self.update_formatting_state()
         except GLib.Error as e:
             print("Background color selection error:", e.message)
 
@@ -1045,37 +1060,44 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_bold = btn.get_active()
         self.apply_persistent_formatting('bold', self.is_bold)
         self.webview.grab_focus()
+        self.update_formatting_state()
 
     def on_italic_toggled(self, btn):
         self.is_italic = btn.get_active()
         self.apply_persistent_formatting('italic', self.is_italic)
         self.webview.grab_focus()
+        self.update_formatting_state()
 
     def on_underline_toggled(self, btn):
         self.is_underline = btn.get_active()
         self.apply_persistent_formatting('underline', self.is_underline)
         self.webview.grab_focus()
+        self.update_formatting_state()
 
     def on_strikethrough_toggled(self, btn):
         self.is_strikethrough = btn.get_active()
         self.apply_persistent_formatting('strikethrough', self.is_strikethrough)
         self.webview.grab_focus()
+        self.update_formatting_state()
 
     def on_bullet_list_toggled(self, btn):
         self.is_bullet_list = btn.get_active()
         self.apply_list_formatting('unordered', self.is_bullet_list)
         self.webview.grab_focus()
+        self.update_formatting_state()
 
     def on_number_list_toggled(self, btn):
         self.is_number_list = btn.get_active()
         self.apply_list_formatting('ordered', self.is_number_list)
         self.webview.grab_focus()
+        self.update_formatting_state()
 
     def on_heading_changed(self, dropdown, *args):
         headings = ["div", "h1", "h2", "h3", "h4", "h5", "h6"]
         selected = dropdown.get_selected()
         if 0 <= selected < len(headings):
             self.exec_js(f"document.execCommand('formatBlock', false, '{headings[selected]}')")
+            self.update_formatting_state()
 
     def on_align_left(self, btn):
         if btn.get_active():
@@ -1086,6 +1108,7 @@ class EditorWindow(Adw.ApplicationWindow):
             self.align_justify_btn.set_active(False)
             self.exec_js("document.execCommand('justifyLeft')")
             self.webview.grab_focus()
+            self.update_formatting_state()
 
     def on_align_center(self, btn):
         if btn.get_active():
@@ -1096,6 +1119,7 @@ class EditorWindow(Adw.ApplicationWindow):
             self.align_justify_btn.set_active(False)
             self.exec_js("document.execCommand('justifyCenter')")
             self.webview.grab_focus()
+            self.update_formatting_state()
 
     def on_align_right(self, btn):
         if btn.get_active():
@@ -1106,6 +1130,7 @@ class EditorWindow(Adw.ApplicationWindow):
             self.align_justify_btn.set_active(False)
             self.exec_js("document.execCommand('justifyRight')")
             self.webview.grab_focus()
+            self.update_formatting_state()
 
     def on_align_justify(self, btn):
         if btn.get_active():
@@ -1116,12 +1141,15 @@ class EditorWindow(Adw.ApplicationWindow):
             self.align_right_btn.set_active(False)
             self.exec_js("document.execCommand('justifyFull')")
             self.webview.grab_focus()
+            self.update_formatting_state()
 
     def on_indent_more(self, *args):
         self.exec_js("document.execCommand('indent')")
+        self.update_formatting_state()
 
     def on_indent_less(self, *args):
         self.exec_js("document.execCommand('outdent')")
+        self.update_formatting_state()
 
     def on_font_family_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
@@ -1168,6 +1196,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 })();
             """
             self.exec_js(script)
+            self.update_formatting_state()
 
     def on_font_size_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
@@ -1200,6 +1229,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 })();
             """
             self.exec_js(script)
+            self.update_formatting_state()
 
     def open_file_dialog(self):
         file_dialog = Gtk.FileDialog.new()
@@ -1432,7 +1462,7 @@ class EditorWindow(Adw.ApplicationWindow):
                         file_path = self.current_file.get_path()
                         if file_path.endswith(".mhtml"):
                             self.save_as_mhtml(self.current_file)
-                        elif file_path.endswth(".html") or file_path.endswith(".htm"):
+                        elif file_path.endswith(".html") or file_path.endswith(".htm"):
                             self.save_as_html(self.current_file)
                         elif file_path.endswith(".txt"):
                             self.save_as_txt(self.current_file)
@@ -1530,6 +1560,12 @@ class EditorWindow(Adw.ApplicationWindow):
                 let container = range.startContainer;
                 let parent = (container.nodeType === 3) ? container.parentElement : container;
                 let computedStyle = window.getComputedStyle(parent);
+                let blockParent = parent;
+                while (blockParent && !window.getComputedStyle(blockParent).display.includes('block')) {
+                    blockParent = blockParent.parentElement;
+                }
+                let heading = blockParent ? blockParent.tagName.toLowerCase() : 'div';
+                if (heading === 'p' || !['h1','h2','h3','h4','h5','h6'].includes(heading)) heading = 'div';
                 let states = {
                     bold: computedStyle.fontWeight === 'bold' || parseInt(computedStyle.fontWeight) > 400,
                     italic: computedStyle.fontStyle === 'italic',
@@ -1540,7 +1576,12 @@ class EditorWindow(Adw.ApplicationWindow):
                     justifyLeft: document.queryCommandState('justifyLeft'),
                     justifyCenter: document.queryCommandState('justifyCenter'),
                     justifyRight: document.queryCommandState('justifyRight'),
-                    justifyFull: document.queryCommandState('justifyFull')
+                    justifyFull: document.queryCommandState('justifyFull'),
+                    fontFamily: computedStyle.fontFamily.split(',')[0].replace(/['"]/g, ''),
+                    fontSize: computedStyle.fontSize,
+                    color: computedStyle.color,
+                    backgroundColor: computedStyle.backgroundColor,
+                    heading: heading
                 };
                 return JSON.stringify(states);
             })();
@@ -1552,24 +1593,38 @@ class EditorWindow(Adw.ApplicationWindow):
             js_value = webview.evaluate_javascript_finish(result)
             if js_value and js_value.is_string():
                 states = json.loads(js_value.to_string())
+                
+                # Bold
                 if states.get('bold', False) != self.is_bold:
                     self.is_bold = states['bold']
                     self.bold_btn.set_active(self.is_bold)
+                
+                # Italic
                 if states.get('italic', False) != self.is_italic:
                     self.is_italic = states['italic']
                     self.italic_btn.set_active(self.is_italic)
+                
+                # Underline
                 if states.get('underline', False) != self.is_underline:
                     self.is_underline = states['underline']
                     self.underline_btn.set_active(self.is_underline)
+                
+                # Strikethrough
                 if states.get('strikethrough', False) != self.is_strikethrough:
                     self.is_strikethrough = states['strikethrough']
                     self.strikethrough_btn.set_active(self.is_strikethrough)
+                
+                # Bullet List
                 if states.get('ul', False) != self.is_bullet_list:
                     self.is_bullet_list = states['ul']
                     self.bullet_btn.set_active(self.is_bullet_list)
+                
+                # Numbered List
                 if states.get('ol', False) != self.is_number_list:
                     self.is_number_list = states['ol']
                     self.number_btn.set_active(self.is_number_list)
+                
+                # Alignment
                 if states.get('justifyLeft', False) != self.is_align_left:
                     self.is_align_left = states['justifyLeft']
                     self.align_left_btn.set_active(self.is_align_left)
@@ -1582,6 +1637,45 @@ class EditorWindow(Adw.ApplicationWindow):
                 if states.get('justifyFull', False) != self.is_align_justify:
                     self.is_align_justify = states['justifyFull']
                     self.align_justify_btn.set_active(self.is_align_justify)
+                
+                # Font Family
+                font_family = states.get('fontFamily', 'Sans')
+                model = self.font_dropdown.get_model()
+                for i in range(model.get_n_items()):
+                    if model.get_item(i).get_string() == font_family:
+                        self.font_dropdown.set_selected(i)
+                        break
+                
+                # Font Size
+                font_size = states.get('fontSize', '11pt').replace('px', '').replace('pt', '')
+                try:
+                    font_size = str(float(font_size))
+                    model = self.size_dropdown.get_model()
+                    for i in range(model.get_n_items()):
+                        if model.get_item(i).get_string() == font_size:
+                            self.size_dropdown.set_selected(i)
+                            break
+                except ValueError:
+                    pass
+                
+                # Text Color
+                color = states.get('color', 'rgb(0, 0, 0)')
+                if Gdk.RGBA().parse(color):
+                    self.current_text_color = Gdk.RGBA()
+                    self.current_text_color.parse(color)
+                    self.text_color_indicator.queue_draw()
+                
+                # Background Color
+                bg_color = states.get('backgroundColor', 'rgba(0, 0, 0, 0)')
+                if Gdk.RGBA().parse(bg_color):
+                    self.current_bg_color = Gdk.RGBA()
+                    self.current_bg_color.parse(bg_color)
+                    self.bg_color_indicator.queue_draw()
+                
+                # Heading
+                heading = states.get('heading', 'div')
+                headings = {"div": 0, "h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
+                self.heading_dropdown.set_selected(headings.get(heading, 0))
         except Exception as e:
             print(f"Error updating formatting state: {e}")
 

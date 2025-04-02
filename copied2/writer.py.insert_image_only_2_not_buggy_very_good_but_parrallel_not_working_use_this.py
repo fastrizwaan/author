@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 
+import base64
+import mimetypes
+
 import os
-import json
-import gi
+import gi, json
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('WebKit', '6.0')
-from gi.repository import Gtk, Adw, WebKit, Gio, GLib, Gdk
+gi.require_version('Pango', '1.0')
+gi.require_version('PangoCairo', '1.0')
+from gi.repository import Gtk, Adw, WebKit, Gio, GLib, Pango, PangoCairo, Gdk
+from datetime import datetime
 
 class Writer(Adw.Application):
     def __init__(self):
@@ -24,8 +29,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.set_title("Writer")
         self.set_default_size(1000, 700)
 
-        # State tracking<html>
-
+        # State tracking
         self.is_bold = False
         self.is_italic = False
         self.is_underline = False
@@ -37,7 +41,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_align_right = False
         self.is_align_justify = False
         self.current_font = "Sans"
-        self.current_font_size = "11"
+        self.current_font_size = "12"
         
         # Document state
         self.current_file = None
@@ -50,14 +54,14 @@ class EditorWindow(Adw.ApplicationWindow):
         # CSS Provider
         self.css_provider = Gtk.CssProvider()
         self.css_provider.load_from_data(b"""
-            .toolbar-container { padding: 6px; background-color: rgba(127, 127, 127, 0.05); }
+            .toolbar-container { padding: 6px; background-color: rgba(127, 127, 127, 0.2); }
             .flat { background: none; }
             .flat:hover, .flat:checked { background: rgba(127, 127, 127, 0.25); }
             colorbutton.flat, colorbutton.flat button { background: none; }
             colorbutton.flat:hover, colorbutton.flat button:hover { background: rgba(127, 127, 127, 0.25); }
             dropdown.flat, dropdown.flat button { background: none; border-radius: 5px; }
             dropdown.flat:hover { background: rgba(127, 127, 127, 0.25); }
-            .flat-header { background: rgba(127, 127, 127, 0.05); border: none; box-shadow: none; padding: 0; }
+            .flat-header { background: rgba(127, 127, 127, 0.2); border: none; box-shadow: none; padding: 0; }
             .toolbar-group { margin: 0 3px; }
             .color-indicator { min-height: 3px; min-width: 16px; margin-top: 1px; border-radius: 2px; }
             .color-box { padding: 0; }
@@ -75,28 +79,137 @@ class EditorWindow(Adw.ApplicationWindow):
         user_content.connect('script-message-received::selectionChanged', self.on_selection_changed)
         self.webview.connect('load-changed', self.on_webview_load)
 
-        self.initial_html = """<!DOCTYPE html>
-<html>
+        self.initial_html = """
+<!DOCTYPE html>
 <head>
     <style>
-        body { font-family: sans-serif; font-size: 12pt; margin: 20px; line-height: 1.5; }
-        @media (prefers-color-scheme: dark) { body { background-color: #1e1e1e; color: #e0e0e0; } }
-        @media (prefers-color-scheme: light) { body { background-color: #ffffff; color: #000000; } }
-    </style>
-    <meta charset="UTF-8">
-    <title>Editor</title>
-    <style>
-        .content {
-            min-height: 0px;
-            padding: 0px;
+        body {
+            font-family: serif;
+            font-size: 12pt;
+            margin: 0;
+            padding: 0;
+            line-height: 1.5;
+        }
+        @media (prefers-color-scheme: dark) {
+            body { background-color: #1e1e1e; color: #e0e0e0; }
+            editor { background-color: #1e1e1e; color: #e0e0e0; }
+            img.selected { outline-color: #5e97f6; box-shadow: 0 0 10px rgba(94, 151, 246, 0.5); }
+            .context-menu { background-color: #333; border-color: #555; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); }
+            .context-menu-item:hover { background-color: #444; }
+            .context-menu-separator { background-color: #555; }
+            .context-menu-submenu-content { background-color: #333; border-color: #555; }
+        }
+        @media (prefers-color-scheme: light) {
+            body { background-color: #ffffff; color: #000000; }
+            editor { background-color: #ffffff; color: #000000; }
+            img.selected { outline: 2px solid #4285f4; box-shadow: 0 0 10px rgba(66, 133, 244, 0.5); }
+            .context-menu { background-color: white; border-color: #ccc; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
+            .context-menu-item:hover { background-color: #f0f0f0; }
+            .context-menu-separator { background-color: #e0e0e0; }
+            .context-menu-submenu-content { background-color: white; border-color: #ccc; }
+        }
+        #editor {
             outline: none;
+            margin: 0px;
+            padding: 20px;
+            border: none;
+            min-height: 1000px;
+            overflow-y: auto;
+        }
+        img {
+            display: inline-block;
+            max-width: 50%;
+            cursor: move;
             box-sizing: border-box;
+            height: auto;
+        }
+        img.selected {
+            outline: 2px solid #4285f4;
+            box-shadow: 0 0 10px rgba(66, 133, 244, 0.5);
+        }
+        img.resizing {
+            outline: 2px dashed #4285f4;
+        }
+        img.align-left {
+            float: left;
+            margin: 0 15px 10px 0;
+            shape-outside: margin-box;
+        }
+        img.align-right {
+            float: right;
+            margin: 0 0 10px 15px;
+            shape-outside: margin-box;
+        }
+        img.align-center {
+            display: block;
+            margin: 10px auto;
+            float: none;
+        }
+        img.align-none {
+            float: none;
+            margin: 10px 0;
+            display: block;
+        }
+        .text-wrap-none {
+            clear: both;
+        }
+        .resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: #4285f4;
+            border: 1px solid white;
+            border-radius: 50%;
+            z-index: 999;
+        }
+        .tl-handle { top: -5px; left: -5px; cursor: nw-resize; }
+        .tr-handle { top: -5px; right: -5px; cursor: ne-resize; }
+        .bl-handle { bottom: -5px; left: -5px; cursor: sw-resize; }
+        .br-handle { bottom: -5px; right: -5px; cursor: se-resize; }
+        .context-menu {
+            position: absolute;
+            border: 1px solid;
+            border-radius: 4px;
+            padding: 5px 0;
+            z-index: 1000;
+            min-width: 150px;
+        }
+        .context-menu-item {
+            padding: 8px 15px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .context-menu-separator {
+            height: 1px;
+            margin: 5px 0;
+        }
+        .context-menu-submenu {
+            position: relative;
+        }
+        .context-menu-submenu::after {
+            content: '▶';
+            position: absolute;
+            right: 10px;
+            top: 8px;
+            font-size: 10px;
+        }
+        .context-menu-submenu-content {
+            display: none;
+            position: absolute;
+            left: 100%;
+            top: 0;
+            border: 1px solid;
+            border-radius: 4px;
+            padding: 5px 0;
+            min-width: 150px;
+        }
+        .context-menu-submenu:hover .context-menu-submenu-content {
+            display: block;
         }
     </style>
 </head>
 <body>
-    <div class="content" contenteditable="true"><p>\u200B</p></div>
-
+    <div id="editor" contenteditable="true"><p>\u200B</p></div>
 </body>
 </html>"""
 
@@ -126,6 +239,14 @@ class EditorWindow(Adw.ApplicationWindow):
         align_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         align_group.add_css_class("toolbar-group")
 
+
+        # In the toolbar groups section (where other buttons are added)
+        image_btn = Gtk.Button(icon_name="insert-image-symbolic")
+        image_btn.add_css_class("flat")
+        image_btn.set_tooltip_text("Insert Image")
+        image_btn.connect("clicked", self.on_insert_image_clicked)
+        text_format_group.append(image_btn)
+
         file_toolbar_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=15)
         file_toolbar_group.add_css_class("toolbar-group-container")
         file_toolbar_group.append(file_group)
@@ -145,7 +266,6 @@ class EditorWindow(Adw.ApplicationWindow):
         toolbars_flowbox.add_css_class("toolbar-container")
         toolbars_flowbox.insert(file_toolbar_group, -1)
         toolbars_flowbox.insert(formatting_toolbar_group, -1)
-
 
         scroll.set_child(self.webview)
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -188,20 +308,24 @@ class EditorWindow(Adw.ApplicationWindow):
         self.heading_dropdown.add_css_class("flat")
         text_style_group.append(self.heading_dropdown)
 
-        font_store = Gtk.StringList()
-        for name in sorted(["Sans", "Serif", "Monospace"]):
-            font_store.append(name)
+        # Font dropdown using PangoCairo
+        font_map = PangoCairo.FontMap.get_default()
+        families = font_map.list_families()
+        font_names = sorted([family.get_name() for family in families])
+        font_store = Gtk.StringList(strings=font_names)
         self.font_dropdown = Gtk.DropDown(model=font_store)
+        default_font_index = font_names.index("Sans") if "Sans" in font_names else 0
+        self.font_dropdown.set_selected(default_font_index)
         self.font_dropdown_handler = self.font_dropdown.connect("notify::selected", self.on_font_family_changed)
         self.font_dropdown.add_css_class("flat")
         text_style_group.append(self.font_dropdown)
 
-        size_store = Gtk.StringList()
-        for size in ["6", "7", "8", "9", "10", "10.5", "11", "12", "13", "14", "15", "16", "18", "20", "21", "22", "24", "26", "28", "32", "36", "40", "42", "44", "48", "54", "60", "66", "72", "80", "88", "96"]:
-
-            size_store.append(size)
+        # Size dropdown - using point sizes from 6pt to 96pt
+        self.size_range = [str(size) for size in [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72, 96]]
+        size_range = [str(i) for i in range(6, 97)]  # 6 to 96 inclusive
+        size_store = Gtk.StringList(strings=size_range)
         self.size_dropdown = Gtk.DropDown(model=size_store)
-        self.size_dropdown.set_selected(6)  # 11pt
+        self.size_dropdown.set_selected(6)  # Default to 12pt (index 6 is 12pt: 6,7,8,9,10,11,12)
         self.size_dropdown_handler = self.size_dropdown.connect("notify::selected", self.on_font_size_changed)
         self.size_dropdown.add_css_class("flat")
         text_style_group.append(self.size_dropdown)
@@ -270,7 +394,6 @@ class EditorWindow(Adw.ApplicationWindow):
         self.webview.add_controller(key_controller)
         key_controller.connect("key-pressed", self.on_key_pressed)
 
-
         self.connect("close-request", self.on_close_request)
 
     def on_content_changed_js(self, manager, js_result):
@@ -279,63 +402,920 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_modified = True
         self.update_title()
 
+    def on_insert_image_clicked(self, btn):
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Insert Image")
+        filter = Gtk.FileFilter()
+        filter.add_mime_type("image/png")
+        filter.add_mime_type("image/jpeg")
+        filter.add_mime_type("image/gif")
+        dialog.set_default_filter(filter)
+        dialog.open(self, None, self.on_insert_image_dialog_response)
+
+    def on_insert_image_dialog_response(self, dialog, result):
+        try:
+            file = dialog.open_finish(result)
+            if file:
+                self.insert_image(file)
+        except GLib.Error as e:
+            self.show_error_dialog(f"Error opening image: {e.message}")
+
+    def insert_image(self, file):
+        try:
+            success, contents, _ = file.load_contents()
+            if success:
+                mime_type, _ = mimetypes.guess_type(file.get_path())
+                if not mime_type:
+                    mime_type = 'image/png'
+                base64_data = base64.b64encode(contents).decode('utf-8')
+                data_url = f"data:{mime_type};base64,{base64_data}"
+                data_url_escaped = data_url.replace("'", "\\'")
+                self.exec_js(
+                    f"document.execCommand('insertHTML', false, "
+                    f"'<img src=\"{data_url_escaped}\" contenteditable=\"false\" draggable=\"true\">');"
+                )
+                self.webview.grab_focus()
+        except GLib.Error as e:
+            self.show_error_dialog(f"Error inserting image: {e.message}")
+
+    def show_error_dialog(self, message):
+        dialog = Adw.MessageDialog(
+            transient_for=self,
+            heading="Error",
+            body=message,
+            modal=True
+        )
+        dialog.add_response("ok", "OK")
+        dialog.present()
+            
     def on_webview_load(self, webview, load_event):
         if load_event == WebKit.LoadEvent.FINISHED:
-            self.webview.evaluate_javascript("""
-                (function() {
-                    let p = document.querySelector('p');
-                    if (p) {
-                        let range = document.createRange();
-                        range.setStart(p, 0);
-                        range.setEnd(p, 0);
-                        let sel = window.getSelection();
-                        sel.removeAllRanges();
-                        sel.addRange(range);
-                    }
-                    function debounce(func, wait) {
-                        let timeout;
-                        return function(...args) {
-                            clearTimeout(timeout);
-                            timeout = setTimeout(() => func(...args), wait);
-                        };
-                    }
-                    let lastContent = document.body.innerHTML;
-                    const notifyChange = debounce(function() {
-                        let currentContent = document.body.innerHTML;
-                        if (currentContent !== lastContent) {
-                            window.webkit.messageHandlers.contentChanged.postMessage('changed');
-                            lastContent = currentContent;
-                        }
-                    }, 250);
-                    document.addEventListener('input', notifyChange);
-                    document.addEventListener('paste', notifyChange);
-                    document.addEventListener('cut', notifyChange);
-
-                    const notifySelectionChange = debounce(function() {
-                        const state = {
-                            bold: document.queryCommandState('bold'),
-                            italic: document.queryCommandState('italic'),
-                            underline: document.queryCommandState('underline'),
-                            strikethrough: document.queryCommandState('strikethrough'),
-                            formatBlock: document.queryCommandValue('formatBlock') || 'p',
-                            fontName: document.queryCommandValue('fontName') || 'Serif',
-                            fontSize: document.queryCommandValue('fontSize') || '3',
-                            insertUnorderedList: document.queryCommandState('insertUnorderedList'),
-                            insertOrderedList: document.queryCommandState('insertOrderedList'),
-                            justifyLeft: document.queryCommandState('justifyLeft'),
-                            justifyCenter: document.queryCommandState('justifyCenter'),
-                            justifyRight: document.queryCommandState('justifyRight'),
-                            justifyFull: document.queryCommandState('justifyFull')
-                        };
-                        window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
-                    }, 100);
-                    document.addEventListener('selectionchange', notifySelectionChange);
-                    notifySelectionChange(); // Initial state
-                })();
-            """, -1, None, None, None, None, None)
+            # Initialize cursor position
+            self.initialize_cursor_position()
+            
+            # Setup image handling
+            self.setup_image_handling()
+            
+            # Setup content change notification
+            self.setup_content_change_notification()
+            
+            # Setup selection change notification
+            self.setup_selection_change_notification()
+            
+            # Focus the webview after loading
             GLib.idle_add(self.webview.grab_focus)
 
+    def initialize_cursor_position(self):
+        script = """
+        (function() {
+            const editor = document.getElementById('editor');
+            if (!editor) {
+                console.error('Editor element not found');
+                return;
+            }
 
+            // Initialize cursor position
+            let p = editor.querySelector('p');
+            if (p) {
+                let range = document.createRange();
+                range.setStart(p, 0);
+                range.setEnd(p, 0);
+                let sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        })();
+        """
+        self.exec_js(script)
+
+
+    def setup_image_handling(self):
+        script = """
+        (function() {
+            const editor = document.getElementById('editor');
+            if (!editor) {
+                console.error('Editor element not found');
+                return;
+            }
+
+            // Image handling variables
+            let selectedImage = null;
+            let resizeHandles = [];
+            let isDragging = false;
+            let isResizing = false;
+            let lastX, lastY;
+            let resizeStartWidth, resizeStartHeight;
+            let currentResizeHandle = null;
+            let contextMenu = null;
+            
+            // Current text wrap mode for the selected image
+            let currentWrapMode = 'around'; // Default wrap mode
+            
+            // Add additional CSS dynamically for advanced wrapping
+            const style = document.createElement('style');
+            style.textContent = `
+                img {
+                    max-width: 100%;
+                    height: auto;
+                    box-sizing: border-box;
+                }
+                
+                img.wrap-inline {
+                    display: inline;
+                    vertical-align: middle;
+                    margin: 0 5px;
+                }
+                
+                img.wrap-around {
+                    float: none;
+                    margin: 0 15px 10px 15px;
+                    shape-outside: content-box;
+                    shape-margin: 15px;
+                }
+                
+                img.wrap-float-left {
+                    float: left;
+                    margin: 0 15px 10px 0;
+                    shape-outside: margin-box;
+                    shape-margin: 15px;
+                }
+                
+                img.wrap-float-right {
+                    float: right;
+                    margin: 0 0 10px 15px;
+                    shape-outside: margin-box;
+                    shape-margin: 15px;
+                }
+                
+                img.wrap-tight-left {
+                    float: left;
+                    margin: 0 8px 5px 0;
+                    shape-outside: margin-box;
+                    shape-margin: 8px;
+                }
+                
+                img.wrap-tight-right {
+                    float: right;
+                    margin: 0 0 5px 8px;
+                    shape-outside: margin-box;
+                    shape-margin: 8px;
+                }
+                
+                img.wrap-top-bottom {
+                    display: block;
+                    margin: 10px auto;
+                    clear: both;
+                }
+                
+                img.wrap-center {
+                    display: block;
+                    margin: 10px auto;
+                    float: none;
+                }
+                
+                .text-wrap-none {
+                    clear: both;
+                    height: 0;
+                }
+                
+                .resize-handle {
+                    position: absolute;
+                    width: 10px;
+                    height: 10px;
+                    background-color: #4285f4;
+                    border: 1px solid white;
+                    border-radius: 50%;
+                    z-index: 999;
+                }
+                
+                .tl-handle { top: -5px; left: -5px; cursor: nw-resize; }
+                .tr-handle { top: -5px; right: -5px; cursor: ne-resize; }
+                .bl-handle { bottom: -5px; left: -5px; cursor: sw-resize; }
+                .br-handle { bottom: -5px; right: -5px; cursor: se-resize; }
+                
+                img.selected {
+                    outline: 2px solid #4285f4;
+                    box-shadow: 0 0 10px rgba(66, 133, 244, 0.5);
+                }
+                
+                img.resizing {
+                    outline: 2px dashed #4285f4;
+                }
+            `;
+            document.head.appendChild(style);
+
+            // Create resize handles
+            function createResizeHandles(image) {
+                removeResizeHandles();
+                const container = document.createElement('div');
+                container.style.position = 'absolute';
+                
+                // Get position relative to editor
+                const rect = image.getBoundingClientRect();
+                const editorRect = editor.getBoundingClientRect();
+                container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
+                container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
+                container.style.width = image.offsetWidth + 'px';
+                container.style.height = image.offsetHeight + 'px';
+                
+                container.style.pointerEvents = 'none';
+                container.className = 'resize-container';
+
+                const positions = ['tl', 'tr', 'bl', 'br'];
+                positions.forEach(pos => {
+                    const handle = document.createElement('div');
+                    handle.className = `resize-handle ${pos}-handle`;
+                    handle.style.pointerEvents = 'all';
+                    handle.dataset.position = pos;
+                    
+                    handle.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        startResize(e, handle);
+                    });
+                    
+                    container.appendChild(handle);
+                    resizeHandles.push(handle);
+                });
+
+                editor.appendChild(container);
+            }
+
+            // Remove resize handles
+            function removeResizeHandles() {
+                const container = editor.querySelector('.resize-container');
+                if (container) container.remove();
+                resizeHandles = [];
+            }
+
+            // Update resize handles position
+            function updateResizeHandles() {
+                if (!selectedImage) return;
+                
+                const container = editor.querySelector('.resize-container');
+                if (container) {
+                    const rect = selectedImage.getBoundingClientRect();
+                    const editorRect = editor.getBoundingClientRect();
+                    
+                    container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
+                    container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
+                    container.style.width = selectedImage.offsetWidth + 'px';
+                    container.style.height = selectedImage.offsetHeight + 'px';
+                }
+            }
+
+            // Start resizing
+            function startResize(e, handle) {
+                if (!selectedImage) return;
+                isResizing = true;
+                currentResizeHandle = handle;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                resizeStartWidth = selectedImage.offsetWidth;
+                resizeStartHeight = selectedImage.offsetHeight;
+                selectedImage.classList.add('resizing');
+                
+                document.addEventListener('mousemove', handleResize);
+                document.addEventListener('mouseup', stopResize);
+            }
+
+            // Handle resize
+            function handleResize(e) {
+                if (!isResizing || !selectedImage || !currentResizeHandle) return;
+                
+                const deltaX = e.clientX - lastX;
+                const deltaY = e.clientY - lastY;
+                const position = currentResizeHandle.dataset.position;
+                
+                let newWidth = resizeStartWidth;
+                let newHeight = resizeStartHeight;
+                
+                if (position.includes('r')) newWidth += deltaX;
+                if (position.includes('l')) newWidth -= deltaX;
+                if (position.includes('b')) newHeight += deltaY;
+                if (position.includes('t')) newHeight -= deltaY;
+                
+                if (e.shiftKey) {
+                    const aspectRatio = resizeStartWidth / resizeStartHeight;
+                    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                        newHeight = newWidth / aspectRatio;
+                    } else {
+                        newWidth = newHeight * aspectRatio;
+                    }
+                }
+                
+                newWidth = Math.max(20, newWidth);
+                newHeight = Math.max(20, newHeight);
+                
+                selectedImage.style.width = newWidth + 'px';
+                selectedImage.style.height = newHeight + 'px';
+                
+                updateResizeHandles();
+            }
+
+            // Stop resizing
+            function stopResize() {
+                isResizing = false;
+                currentResizeHandle = null;
+                if (selectedImage) selectedImage.classList.remove('resizing');
+                document.removeEventListener('mousemove', handleResize);
+                document.removeEventListener('mouseup', stopResize);
+            }
+
+            // Start dragging
+            function startDrag(e, image) {
+                if (isResizing) return;
+                isDragging = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                
+                // Store the current wrap mode
+                const wrapMode = getCurrentWrapMode(image);
+                image.dataset.wrapMode = wrapMode;
+                
+                document.addEventListener('mousemove', handleDrag);
+                document.addEventListener('mouseup', stopDrag);
+            }
+
+            // Handle drag
+            function handleDrag(e) {
+                if (!isDragging || !selectedImage) return;
+                
+                // Create a temporary marker for insertion
+                const temp = document.createElement('span');
+                temp.style.display = 'inline-block';
+                temp.style.width = '1px';
+                temp.style.height = '1px';
+                
+                // Find insertion point from cursor position
+                const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+                if (range) {
+                    // Insert temporary marker
+                    range.insertNode(temp);
+                    
+                    // Get the stored wrap mode
+                    const wrapMode = selectedImage.dataset.wrapMode || 'around';
+                    
+                    // Remove any text-wrap-none elements if they follow the image
+                    const siblings = [];
+                    let nextSibling = selectedImage.nextSibling;
+                    while (nextSibling) {
+                        siblings.push(nextSibling);
+                        nextSibling = nextSibling.nextSibling;
+                    }
+                    
+                    siblings.forEach(sibling => {
+                        if (sibling.nodeType === Node.ELEMENT_NODE && 
+                            sibling.classList && 
+                            sibling.classList.contains('text-wrap-none')) {
+                            sibling.remove();
+                        }
+                    });
+                    
+                    // Move the image to the new position
+                    temp.parentNode.insertBefore(selectedImage, temp);
+                    temp.remove();
+                    
+                    // Apply wrapping
+                    setTextWrap(selectedImage, wrapMode);
+                    
+                    // Update the resize handles
+                    updateResizeHandles();
+                }
+            }
+
+            // Stop dragging
+            function stopDrag() {
+                isDragging = false;
+                document.removeEventListener('mousemove', handleDrag);
+                document.removeEventListener('mouseup', stopDrag);
+                
+                // Re-apply text wrap
+                if (selectedImage) {
+                    const wrapMode = selectedImage.dataset.wrapMode || getCurrentWrapMode(selectedImage);
+                    setTextWrap(selectedImage, wrapMode);
+                }
+            }
+
+            // Get current wrap mode from image classes
+            function getCurrentWrapMode(image) {
+                if (image.classList.contains('wrap-inline')) return 'inline';
+                if (image.classList.contains('wrap-around')) return 'around';
+                if (image.classList.contains('wrap-float-left')) return 'float-left';
+                if (image.classList.contains('wrap-float-right')) return 'float-right';
+                if (image.classList.contains('wrap-tight-left')) return 'tight-left';
+                if (image.classList.contains('wrap-tight-right')) return 'tight-right';
+                if (image.classList.contains('wrap-top-bottom')) return 'top-bottom';
+                if (image.classList.contains('wrap-center')) return 'center';
+                
+                return 'around'; // Default
+            }
+
+            // Clear all wrap classes
+            function clearWrapClasses(image) {
+                image.classList.remove(
+                    'wrap-inline', 'wrap-around', 'wrap-float-left', 'wrap-float-right',
+                    'wrap-tight-left', 'wrap-tight-right', 'wrap-top-bottom',
+                    'wrap-center'
+                );
+            }
+
+            // Set text wrap
+            function setTextWrap(image, wrapMode) {
+                // Update current wrap mode
+                currentWrapMode = wrapMode;
+                
+                // Remove any text-wrap-none elements
+                const siblings = [];
+                let nextSibling = image.nextSibling;
+                while (nextSibling) {
+                    siblings.push(nextSibling);
+                    nextSibling = nextSibling.nextSibling;
+                }
+                
+                siblings.forEach(sibling => {
+                    if (sibling.nodeType === Node.ELEMENT_NODE && 
+                        sibling.classList && 
+                        sibling.classList.contains('text-wrap-none')) {
+                        sibling.remove();
+                    }
+                });
+                
+                // Clear all styles and classes
+                clearWrapClasses(image);
+                image.style.float = '';
+                image.style.margin = '';
+                image.style.display = '';
+                image.style.clear = '';
+                
+                // Apply the requested wrap mode
+                switch (wrapMode) {
+                    case 'around':
+                        // Natural wrapping around the image (like in Word/LibreOffice)
+                        image.classList.add('wrap-around');
+                        // Center the image horizontally while allowing text to flow around
+                        image.style.display = 'block';
+                        image.style.marginLeft = 'auto';
+                        image.style.marginRight = 'auto';
+                        image.style.marginTop = '10px';
+                        image.style.marginBottom = '10px';
+                        
+                        // Add special styling for shape-outside
+                        if ('shapeOutside' in image.style) {
+                            image.style.shapeOutside = 'content-box';
+                            image.style.shapeMargin = '15px';
+                        }
+                        break;
+                    
+                    case 'inline':
+                        // Basic inline mode (like a character)
+                        image.classList.add('wrap-inline');
+                        break;
+                        
+                    case 'float-left':
+                        // Square wrapping with image on left
+                        image.classList.add('wrap-float-left');
+                        image.style.float = 'left';
+                        image.style.margin = '0 15px 10px 0';
+                        
+                        // Add special styling for shape-outside
+                        if ('shapeOutside' in image.style) {
+                            image.style.shapeOutside = 'margin-box';
+                            image.style.shapeMargin = '15px';
+                        }
+                        break;
+                        
+                    case 'float-right':
+                        // Square wrapping with image on right
+                        image.classList.add('wrap-float-right');
+                        image.style.float = 'right';
+                        image.style.margin = '0 0 10px 15px';
+                        
+                        // Add special styling for shape-outside
+                        if ('shapeOutside' in image.style) {
+                            image.style.shapeOutside = 'margin-box';
+                            image.style.shapeMargin = '15px';
+                        }
+                        break;
+                        
+                    case 'tight-left':
+                        // Tight wrapping with image on left
+                        image.classList.add('wrap-tight-left');
+                        image.style.float = 'left';
+                        image.style.margin = '0 8px 5px 0';
+                        
+                        // Add special styling for shape-outside
+                        if ('shapeOutside' in image.style) {
+                            image.style.shapeOutside = 'margin-box';
+                            image.style.shapeMargin = '8px';
+                        }
+                        break;
+                        
+                    case 'tight-right':
+                        // Tight wrapping with image on right
+                        image.classList.add('wrap-tight-right');
+                        image.style.float = 'right';
+                        image.style.margin = '0 0 5px 8px';
+                        
+                        // Add special styling for shape-outside
+                        if ('shapeOutside' in image.style) {
+                            image.style.shapeOutside = 'margin-box';
+                            image.style.shapeMargin = '8px';
+                        }
+                        break;
+                        
+                    case 'top-bottom':
+                        // No wrapping - text above and below only
+                        image.classList.add('wrap-top-bottom');
+                        image.style.display = 'block';
+                        image.style.margin = '10px auto';
+                        
+                        // Add a clear div to prevent text wrapping
+                        const clearDiv = document.createElement('div');
+                        clearDiv.className = 'text-wrap-none';
+                        clearDiv.style.clear = 'both';
+                        
+                        if (image.nextSibling) {
+                            image.parentNode.insertBefore(clearDiv, image.nextSibling);
+                        } else {
+                            image.parentNode.appendChild(clearDiv);
+                        }
+                        break;
+                        
+                    case 'center':
+                        // Image is centered with text above and below
+                        image.classList.add('wrap-center');
+                        image.style.display = 'block';
+                        image.style.margin = '10px auto';
+                        
+                        // Add a clear div to prevent text wrapping
+                        const clearDiv2 = document.createElement('div');
+                        clearDiv2.className = 'text-wrap-none';
+                        clearDiv2.style.clear = 'both';
+                        
+                        if (image.nextSibling) {
+                            image.parentNode.insertBefore(clearDiv2, image.nextSibling);
+                        } else {
+                            image.parentNode.appendChild(clearDiv2);
+                        }
+                        break;
+                }
+                
+                // Update resize handles if image is selected
+                if (selectedImage === image) {
+                    updateResizeHandles();
+                }
+            }
+
+            // Select image
+            function selectImage(image) {
+                if (selectedImage) selectedImage.classList.remove('selected');
+                selectedImage = image;
+                selectedImage.classList.add('selected');
+                
+                // Store the current wrap mode in dataset for potential drag operations
+                image.dataset.wrapMode = getCurrentWrapMode(image);
+                
+                createResizeHandles(image);
+            }
+
+            // Deselect image
+            function deselectImage() {
+                if (selectedImage) {
+                    selectedImage.classList.remove('selected');
+                    selectedImage = null;
+                }
+                removeResizeHandles();
+            }
+
+            // Create context menu
+            function createContextMenu(x, y) {
+                removeContextMenu();
+                contextMenu = document.createElement('div');
+                contextMenu.className = 'context-menu';
+                contextMenu.style.left = x + 'px';
+                contextMenu.style.top = y + 'px';
+                
+                const menuItems = [
+                    { label: 'Text Wrapping', submenu: [
+                        { label: 'Around (Text on Both Sides)', action: 'wrap-around' },
+                        { label: 'In Line with Text', action: 'wrap-inline' },
+                        { label: 'Square Left', action: 'wrap-float-left' },
+                        { label: 'Square Right', action: 'wrap-float-right' },
+                        { label: 'Tight Left', action: 'wrap-tight-left' },
+                        { label: 'Tight Right', action: 'wrap-tight-right' },
+                        { label: 'Top and Bottom', action: 'wrap-top-bottom' },
+                        { label: 'Centered', action: 'wrap-center' }
+                    ]},
+                    { type: 'separator' },
+                    { label: 'Copy Image', action: 'copy' },
+                    { label: 'Delete Image', action: 'delete' }
+                ];
+                
+                createMenuItems(contextMenu, menuItems);
+                document.body.appendChild(contextMenu);
+                setTimeout(() => {
+                    document.addEventListener('click', closeContextMenuOnClickOutside);
+                }, 0);
+            }
+
+            // Create menu items
+            function createMenuItems(parent, items) {
+                items.forEach(item => {
+                    if (item.type === 'separator') {
+                        const separator = document.createElement('div');
+                        separator.className = 'context-menu-separator';
+                        parent.appendChild(separator);
+                    } else if (item.submenu) {
+                        const submenuItem = document.createElement('div');
+                        submenuItem.className = 'context-menu-item context-menu-submenu';
+                        submenuItem.textContent = item.label;
+                        
+                        const submenuContent = document.createElement('div');
+                        submenuContent.className = 'context-menu-submenu-content';
+                        createMenuItems(submenuContent, item.submenu);
+                        
+                        submenuItem.appendChild(submenuContent);
+                        parent.appendChild(submenuItem);
+                    } else {
+                        const menuItem = document.createElement('div');
+                        menuItem.className = 'context-menu-item';
+                        menuItem.textContent = item.label;
+                        
+                        // Highlight the active wrap mode
+                        if (item.action.startsWith('wrap-')) {
+                            const wrapType = item.action.replace('wrap-', '');
+                            if (selectedImage && wrapType === getCurrentWrapMode(selectedImage)) {
+                                menuItem.style.fontWeight = 'bold';
+                            }
+                        }
+                        
+                        menuItem.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            handleContextMenuAction(item.action);
+                            removeContextMenu();
+                        });
+                        parent.appendChild(menuItem);
+                    }
+                });
+            }
+
+            // Handle context menu action
+            function handleContextMenuAction(action) {
+                if (!selectedImage) return;
+                
+                if (action.startsWith('wrap-')) {
+                    const wrapMode = action.replace('wrap-', '');
+                    setTextWrap(selectedImage, wrapMode);
+                    // Store the wrap mode for potential drag operations
+                    selectedImage.dataset.wrapMode = wrapMode;
+                } else if (action === 'copy') {
+                    copyImageToClipboard(selectedImage);
+                } else if (action === 'delete') {
+                    deleteImage(selectedImage);
+                }
+            }
+
+            // Copy image to clipboard
+            function copyImageToClipboard(image) {
+                const canvas = document.createElement('canvas');
+                canvas.width = image.naturalWidth;
+                canvas.height = image.naturalHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(image, 0, 0);
+                canvas.toBlob(blob => {
+                    const item = new ClipboardItem({ 'image/png': blob });
+                    navigator.clipboard.write([item]).then(
+                        () => console.log('Image copied to clipboard'),
+                        err => console.error('Error copying image: ', err)
+                    );
+                });
+            }
+
+            // Delete image
+            function deleteImage(image) {
+                // Remove any clearing elements
+                const siblings = [];
+                let nextSibling = image.nextSibling;
+                while (nextSibling) {
+                    siblings.push(nextSibling);
+                    nextSibling = nextSibling.nextSibling;
+                }
+                
+                siblings.forEach(sibling => {
+                    if (sibling.nodeType === Node.ELEMENT_NODE && 
+                        sibling.classList && 
+                        sibling.classList.contains('text-wrap-none')) {
+                        sibling.remove();
+                    }
+                });
+                
+                // Deselect the image
+                deselectImage();
+                
+                // Remove the image
+                image.remove();
+            }
+
+            // Remove context menu
+            function removeContextMenu() {
+                if (contextMenu) {
+                    document.removeEventListener('click', closeContextMenuOnClickOutside);
+                    contextMenu.remove();
+                    contextMenu = null;
+                }
+            }
+
+            // Close context menu on click outside
+            function closeContextMenuOnClickOutside(e) {
+                if (contextMenu && !contextMenu.contains(e.target)) {
+                    removeContextMenu();
+                }
+            }
+
+            // Event listeners
+            editor.addEventListener('click', (e) => {
+                removeContextMenu();
+                if (e.target.tagName === 'IMG') {
+                    e.preventDefault();
+                    selectImage(e.target);
+                } else {
+                    deselectImage();
+                }
+            });
+
+            editor.addEventListener('contextmenu', (e) => {
+                if (e.target.tagName === 'IMG') {
+                    e.preventDefault();
+                    selectImage(e.target);
+                    createContextMenu(e.clientX, e.clientY);
+                }
+            });
+
+            editor.addEventListener('mousedown', (e) => {
+                if (e.target.tagName === 'IMG' && e.button === 0) {
+                    e.preventDefault();
+                    if (selectedImage !== e.target) {
+                        selectImage(e.target);
+                    }
+                    startDrag(e, e.target);
+                }
+            });
+
+            // Window scroll event to update resize handles
+            window.addEventListener('scroll', () => {
+                if (selectedImage) {
+                    updateResizeHandles();
+                }
+            });
+
+            // Editor scroll event to update resize handles
+            editor.addEventListener('scroll', () => {
+                if (selectedImage) {
+                    updateResizeHandles();
+                }
+            });
+
+            // Initialize existing images
+            editor.querySelectorAll('img').forEach(img => {
+                img.contentEditable = false;
+                img.draggable = true;
+                
+                // If no special class, set default wrapping
+                if (!img.classList.contains('wrap-inline') && 
+                    !img.classList.contains('wrap-around') &&
+                    !img.classList.contains('wrap-float-left') &&
+                    !img.classList.contains('wrap-float-right') &&
+                    !img.classList.contains('wrap-tight-left') &&
+                    !img.classList.contains('wrap-tight-right') &&
+                    !img.classList.contains('wrap-top-bottom') &&
+                    !img.classList.contains('wrap-center')) {
+                    setTextWrap(img, 'around');
+                }
+            });
+
+            // Mutation observer for new images
+            const observer = new MutationObserver(mutations => {
+                mutations.forEach(mutation => {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.tagName === 'IMG') {
+                            node.contentEditable = false;
+                            node.draggable = true;
+                            
+                            // Apply default wrapping if no wrap class is present
+                            const hasWrapClass = node.classList && 
+                                (node.classList.contains('wrap-inline') || 
+                                 node.classList.contains('wrap-around') ||
+                                 node.classList.contains('wrap-float-left') ||
+                                 node.classList.contains('wrap-float-right') ||
+                                 node.classList.contains('wrap-tight-left') ||
+                                 node.classList.contains('wrap-tight-right') ||
+                                 node.classList.contains('wrap-top-bottom') ||
+                                 node.classList.contains('wrap-center'));
+                            
+                            if (!hasWrapClass) {
+                                setTextWrap(node, 'around');
+                            }
+                        }
+                    });
+                });
+            });
+            observer.observe(editor, { childList: true, subtree: true });
+
+            // Function to insert and select image
+            window.insertAndSelectImage = function(src) {
+                document.execCommand('insertHTML', false, '<img src="' + src + '">');
+                const images = editor.querySelectorAll('img');
+                const lastImage = images[images.length - 1];
+                if (lastImage) {
+                    lastImage.contentEditable = false;
+                    lastImage.draggable = true;
+                    selectImage(lastImage);
+                    setTextWrap(lastImage, 'around'); // Default to around for new images
+                }
+            };
+        })();
+        """
+        self.exec_js(script)
+
+
+
+    def setup_content_change_notification(self):
+        script = """
+        (function() {
+            const editor = document.getElementById('editor');
+            if (!editor) {
+                console.error('Editor element not found');
+                return;
+            }
+            
+            // Content change notification
+            function debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func(...args), wait);
+                };
+            }
+
+            let lastContent = editor.innerHTML;
+            const notifyChange = debounce(function() {
+                let currentContent = editor.innerHTML;
+                if (currentContent !== lastContent) {
+                    window.webkit.messageHandlers.contentChanged.postMessage('changed');
+                    lastContent = currentContent;
+                }
+            }, 250);
+
+            editor.addEventListener('input', notifyChange);
+            editor.addEventListener('paste', notifyChange);
+            editor.addEventListener('cut', notifyChange);
+        })();
+        """
+        self.exec_js(script)
+
+    def setup_selection_change_notification(self):
+        script = """
+        (function() {
+            const editor = document.getElementById('editor');
+            if (!editor) {
+                console.error('Editor element not found');
+                return;
+            }
+            
+            // Selection change notification
+            function debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func(...args), wait);
+                };
+            }
+            
+            const notifySelectionChange = debounce(function() {
+                const sel = window.getSelection();
+                if (sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    let element = range.startContainer;
+                    if (element.nodeType === Node.TEXT_NODE) {
+                        element = element.parentElement;
+                    }
+                    const style = window.getComputedStyle(element);
+                    const state = {
+                        bold: document.queryCommandState('bold'),
+                        italic: document.queryCommandState('italic'),
+                        underline: document.queryCommandState('underline'),
+                        // Add other states as needed
+                    };
+                    window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
+                }
+            }, 100);
+
+            document.addEventListener('selectionchange', notifySelectionChange);
+            notifySelectionChange(); // Call once to initialize
+        })();
+        """
+        self.exec_js(script)            
     def on_selection_changed(self, user_content, message):
         if message.is_string():
             state_str = message.to_string()
@@ -405,22 +1385,26 @@ class EditorWindow(Adw.ApplicationWindow):
             self.font_dropdown.set_selected(selected_font_index)
             self.font_dropdown.handler_unblock(self.font_dropdown_handler)
 
-            # Font size detection (convert px to pt)
-            detected_size_px = float(state.get('fontSize', '11'))
-            # Convert px to pt (approx: 1pt = 1.333px)
-            detected_size_pt = str(round(detected_size_px / 1.333))
+            # Font size detection
+            font_size_str = state.get('fontSize', '12pt')
+            if font_size_str.endswith('px'):
+                font_size_pt = str(int(float(font_size_str[:-2]) / 1.333))  # Convert px to pt
+            elif font_size_str.endswith('pt'):
+                font_size_pt = font_size_str[:-2]
+            else:
+                font_size_pt = '12'  # Default
+
             size_store = self.size_dropdown.get_model()
-            selected_size_index = 6  # Default to 11pt
-            for i in range(size_store.get_n_items()):
-                if size_store.get_string(i) == detected_size_pt:
-                    selected_size_index = i
-                    self.current_font_size = detected_size_pt
-                    break
+            available_sizes = [size_store.get_string(i) for i in range(size_store.get_n_items())]
+            selected_size_index = 6  # Default to 12pt
+            if font_size_pt in available_sizes:
+                selected_size_index = available_sizes.index(font_size_pt)
+            self.current_font_size = available_sizes[selected_size_index]
             self.size_dropdown.handler_block(self.size_dropdown_handler)
             self.size_dropdown.set_selected(selected_size_index)
             self.size_dropdown.handler_unblock(self.size_dropdown_handler)
         else:
-            # When called without state, just update dropdowns with current values
+            # When called without state, update dropdowns with current values
             font_store = self.font_dropdown.get_model()
             selected_font_index = 0
             for i in range(font_store.get_n_items()):
@@ -432,7 +1416,7 @@ class EditorWindow(Adw.ApplicationWindow):
             self.font_dropdown.handler_unblock(self.font_dropdown_handler)
 
             size_store = self.size_dropdown.get_model()
-            selected_size_index = 6  # Default to 11pt
+            selected_size_index = 3  # Default to 12
             for i in range(size_store.get_n_items()):
                 if size_store.get_string(i) == self.current_font_size:
                     selected_size_index = i
@@ -440,7 +1424,6 @@ class EditorWindow(Adw.ApplicationWindow):
             self.size_dropdown.handler_block(self.size_dropdown_handler)
             self.size_dropdown.set_selected(selected_size_index)
             self.size_dropdown.handler_unblock(self.size_dropdown_handler)
-
 
     def exec_js(self, script):
         self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
@@ -587,7 +1570,7 @@ class EditorWindow(Adw.ApplicationWindow):
     def on_dark_mode_toggled(self, btn):
         if btn.get_active():
             btn.set_icon_name("weather-clear-night")
-            script = "document.body.style.backgroundColor = '#242424'; document.body.style.color = '#e0e0e0';"
+            script = "document.body.style.backgroundColor = '#1e1e1e'; document.body.style.color = '#e0e0e0';"
         else:
             btn.set_icon_name("display-brightness")
             script = "document.body.style.backgroundColor = '#ffffff'; document.body.style.color = '#000000';"
@@ -712,7 +1695,6 @@ class EditorWindow(Adw.ApplicationWindow):
         if hasattr(self.webview, 'run_javascript'):
             self.webview.run_javascript(js_code, None, callback, None)
         else:
-            # Call callback with appropriate dummy arguments
             callback(self.webview, None, None)
 
     def on_bold_toggled(self, btn):
@@ -726,18 +1708,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None and hasattr(result, 'get_js_value'):
                     bold_state = webview.run_javascript_finish(result).get_js_value().to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     bold_state = not self.is_bold if hasattr(self, 'is_bold') else btn.get_active()
                     
                 self.is_bold = bold_state
                 self.bold_btn.handler_block_by_func(self.on_bold_toggled)
                 self.bold_btn.set_active(self.is_bold)
                 self.bold_btn.handler_unblock_by_func(self.on_bold_toggled)
-                print(f"Final bold state: {self.is_bold}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in bold state callback: {e}")
-                # Fallback on error
                 self.is_bold = not self.is_bold if hasattr(self, 'is_bold') else btn.get_active()
                 self.bold_btn.handler_block_by_func(self.on_bold_toggled)
                 self.bold_btn.set_active(self.is_bold)
@@ -759,18 +1738,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None and hasattr(result, 'get_js_value'):
                     italic_state = webview.run_javascript_finish(result).get_js_value().to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     italic_state = not self.is_italic if hasattr(self, 'is_italic') else btn.get_active()
                     
                 self.is_italic = italic_state
                 self.italic_btn.handler_block_by_func(self.on_italic_toggled)
                 self.italic_btn.set_active(self.is_italic)
                 self.italic_btn.handler_unblock_by_func(self.on_italic_toggled)
-                print(f"Final italic state: {self.is_italic}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in italic state callback: {e}")
-                # Fallback on error
                 self.is_italic = not self.is_italic if hasattr(self, 'is_italic') else btn.get_active()
                 self.italic_btn.handler_block_by_func(self.on_italic_toggled)
                 self.italic_btn.set_active(self.is_italic)
@@ -792,18 +1768,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None and hasattr(result, 'get_js_value'):
                     underline_state = webview.run_javascript_finish(result).get_js_value().to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     underline_state = not self.is_underline if hasattr(self, 'is_underline') else btn.get_active()
                     
                 self.is_underline = underline_state
                 self.underline_btn.handler_block_by_func(self.on_underline_toggled)
                 self.underline_btn.set_active(self.is_underline)
                 self.underline_btn.handler_unblock_by_func(self.on_underline_toggled)
-                print(f"Final underline state: {self.is_underline}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in underline state callback: {e}")
-                # Fallback on error
                 self.is_underline = not self.is_underline if hasattr(self, 'is_underline') else btn.get_active()
                 self.underline_btn.handler_block_by_func(self.on_underline_toggled)
                 self.underline_btn.set_active(self.is_underline)
@@ -825,18 +1798,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None and hasattr(result, 'get_js_value'):
                     strikethrough_state = webview.run_javascript_finish(result).get_js_value().to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     strikethrough_state = not self.is_strikethrough if hasattr(self, 'is_strikethrough') else btn.get_active()
                     
                 self.is_strikethrough = strikethrough_state
                 self.strikethrough_btn.handler_block_by_func(self.on_strikethrough_toggled)
                 self.strikethrough_btn.set_active(self.is_strikethrough)
                 self.strikethrough_btn.handler_unblock_by_func(self.on_strikethrough_toggled)
-                print(f"Final strikethrough state: {self.is_strikethrough}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in strikethrough state callback: {e}")
-                # Fallback on error
                 self.is_strikethrough = not self.is_strikethrough if hasattr(self, 'is_strikethrough') else btn.get_active()
                 self.strikethrough_btn.handler_block_by_func(self.on_strikethrough_toggled)
                 self.strikethrough_btn.set_active(self.is_strikethrough)
@@ -858,7 +1828,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     bullet_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     bullet_state = not self.is_bullet_list if hasattr(self, 'is_bullet_list') else btn.get_active()
                     
                 self.is_bullet_list = bullet_state
@@ -866,18 +1835,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.bullet_btn.set_active(self.is_bullet_list)
                 self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
                 
-                # If bullet list is active, deactivate numbered list
                 if self.is_bullet_list:
                     self.is_number_list = False
                     self.number_btn.handler_block_by_func(self.on_number_list_toggled)
                     self.number_btn.set_active(False)
                     self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
                     
-                print(f"Final bullet list state: {self.is_bullet_list}, Numbered list state: {self.is_number_list}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in bullet list state callback: {e}")
-                # Fallback on error
                 self.is_bullet_list = not self.is_bullet_list if hasattr(self, 'is_bullet_list') else btn.get_active()
                 self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
                 self.bullet_btn.set_active(self.is_bullet_list)
@@ -899,7 +1865,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     number_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     number_state = not self.is_number_list if hasattr(self, 'is_number_list') else btn.get_active()
                     
                 self.is_number_list = number_state
@@ -907,18 +1872,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.number_btn.set_active(self.is_number_list)
                 self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
                 
-                # If numbered list is active, deactivate bullet list
                 if self.is_number_list:
                     self.is_bullet_list = False
                     self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
                     self.bullet_btn.set_active(False)
                     self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
                     
-                print(f"Final number list state: {self.is_number_list}, Bullet list state: {self.is_bullet_list}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in number list state callback: {e}")
-                # Fallback on error
                 self.is_number_list = not self.is_number_list if hasattr(self, 'is_number_list') else btn.get_active()
                 self.number_btn.handler_block_by_func(self.on_number_list_toggled)
                 self.number_btn.set_active(self.is_number_list)
@@ -944,84 +1906,71 @@ class EditorWindow(Adw.ApplicationWindow):
     def on_font_family_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
             self.current_font = item.get_string()
-            self.apply_font_and_size_to_typing()
-            self.update_formatting_ui()
-
-    def on_font_family_changed(self, dropdown, *args):
-        if item := dropdown.get_selected_item():
-            self.current_font = item.get_string()
-            self.apply_font_and_size_to_typing()
+            self.exec_js(f"document.execCommand('fontName', false, '{self.current_font}')")
             self.update_formatting_ui()
 
     def on_font_size_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
-            self.current_font_size = item.get_string()
-            self.apply_font_and_size_to_typing()
-            self.update_formatting_ui()
-            
-    def apply_font_and_size_to_typing(self):
-        script = f"""
+            size_pt = item.get_string()
+            self.current_font_size = size_pt
+            script = f"""
             (function() {{
-                let currentFont = '{self.current_font}';
-                let currentFontSize = '{self.current_font_size}';
-                let sel = window.getSelection();
-                if (!sel.rangeCount) return;
-                let range = sel.getRangeAt(0);
-                if (range.collapsed) {{
-                    // No selection, set styles for new text
-                    let span = document.createElement('span');
-                    span.style.fontFamily = currentFont;
-                    span.style.fontSize = currentFontSize + 'pt';
-                    span.innerHTML = '\\u200B'; // Zero-width space to hold cursor
-                    range.insertNode(span);
-                    range.setStart(span.firstChild, 1);
-                    range.setEnd(span.firstChild, 1);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                }} else {{
-                    // Selection exists, apply to selected text
-                    document.execCommand('fontName', false, currentFont);
-                    let wrapper = document.createElement('span');
-                    wrapper.style.fontSize = currentFontSize + 'pt';
-                    try {{
-                        range.surroundContents(wrapper);
-                    }} catch (e) {{
-                        console.log("Cannot surround range: " + e);
-                        // Fallback for complex selections
-                        let nodes = getTextNodesInRange(range);
-                        nodes.forEach(node => {{
-                            let span = document.createElement('span');
-                            span.style.fontSize = currentFontSize + 'pt';
-                            node.parentNode.insertBefore(span, node);
-                            span.appendChild(node);
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {{
+                    const range = selection.getRangeAt(0);
+                    // Map pt size to closest WebKit size (1-7) for execCommand
+                    let webkitSize;
+                    if ({size_pt} <= 9) webkitSize = '1';
+                    else if ({size_pt} <= 11) webkitSize = '2';
+                    else if ({size_pt} <= 14) webkitSize = '3';
+                    else if ({size_pt} <= 18) webkitSize = '4';
+                    else if ({size_pt} <= 24) webkitSize = '5';
+                    else if ({size_pt} <= 36) webkitSize = '6';
+                    else webkitSize = '7';
+                    
+                    if (range.collapsed) {{
+                        // For cursor position (apply to future typing)
+                        // Clear any existing formatting
+                        document.execCommand('removeFormat', false, null);
+                        // Apply base size
+                        document.execCommand('fontSize', false, webkitSize);
+                        
+                        // Ensure cursor is in a font tag with exact size
+                        let font = selection.focusNode.parentElement;
+                        if (!font || font.tagName !== 'FONT' || 
+                            font.getAttribute('size') !== webkitSize || 
+                            font.style.fontSize !== '{size_pt}pt') {{
+                            // Create new font tag if needed
+                            font = document.createElement('font');
+                            font.setAttribute('size', webkitSize);
+                            font.style.fontSize = '{size_pt}pt';
+                            range.insertNode(font);
+                        }}
+                        
+                        // Insert a zero-width space to anchor the style
+                        const zwsp = document.createTextNode('\u200B');
+                        font.appendChild(zwsp);
+                        
+                        // Position cursor after zero-width space
+                        range.setStartAfter(zwsp);
+                        range.setEndAfter(zwsp);
+                        selection.removeAllRanges();
+                        selection.addRange(range);
+                    }} else {{
+                        // For selected text
+                        document.execCommand('fontSize', false, webkitSize);
+                        const fonts = document.querySelectorAll('font[size="' + webkitSize + '"]');
+                        fonts.forEach(font => {{
+                            if (!font.style.fontSize) {{  // Only if not already set
+                                font.style.fontSize = '{size_pt}pt';
+                            }}
                         }});
                     }}
                 }}
-
-                // Helper function to get text nodes within the selection
-                function getTextNodesInRange(range) {{
-                    let walker = document.createTreeWalker(
-                        range.commonAncestorContainer,
-                        NodeFilter.SHOW_TEXT,
-                        {{
-                            acceptNode: function(node) {{
-                                if (range.intersectsNode(node)) {{
-                                    return NodeFilter.FILTER_ACCEPT;
-                                }}
-                            }}
-                        }}
-                    );
-                    let nodes = [];
-                    let node;
-                    while (node = walker.nextNode()) {{
-                        nodes.push(node);
-                    }}
-                    return nodes;
-                }}
             }})();
-        """
-        self.exec_js(script)
-        
+            """
+            self.exec_js(script)
+            self.update_formatting_ui()
     def on_align_left(self, btn):
         if hasattr(self, '_processing_align_left') and self._processing_align_left:
             return
@@ -1033,7 +1982,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     align_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     align_state = not self.is_align_left if hasattr(self, 'is_align_left') else btn.get_active()
                     
                 self.is_align_left = align_state
@@ -1041,7 +1989,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.align_left_btn.set_active(self.is_align_left)
                 self.align_left_btn.handler_unblock_by_func(self.on_align_left)
                 
-                # If left align is active, deactivate others
                 if self.is_align_left:
                     self.is_align_center = False
                     self.align_center_btn.handler_block_by_func(self.on_align_center)
@@ -1058,11 +2005,9 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_justify_btn.set_active(False)
                     self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
                     
-                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in align left state callback: {e}")
-                # Fallback on error
                 self.is_align_left = not self.is_align_left if hasattr(self, 'is_align_left') else btn.get_active()
                 self.align_left_btn.handler_block_by_func(self.on_align_left)
                 self.align_left_btn.set_active(self.is_align_left)
@@ -1084,7 +2029,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     align_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     align_state = not self.is_align_center if hasattr(self, 'is_align_center') else btn.get_active()
                     
                 self.is_align_center = align_state
@@ -1092,7 +2036,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.align_center_btn.set_active(self.is_align_center)
                 self.align_center_btn.handler_unblock_by_func(self.on_align_center)
                 
-                # If center align is active, deactivate others
                 if self.is_align_center:
                     self.is_align_left = False
                     self.align_left_btn.handler_block_by_func(self.on_align_left)
@@ -1109,11 +2052,9 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_justify_btn.set_active(False)
                     self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
                     
-                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in align center state callback: {e}")
-                # Fallback on error
                 self.is_align_center = not self.is_align_center if hasattr(self, 'is_align_center') else btn.get_active()
                 self.align_center_btn.handler_block_by_func(self.on_align_center)
                 self.align_center_btn.set_active(self.is_align_center)
@@ -1135,7 +2076,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     align_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     align_state = not self.is_align_right if hasattr(self, 'is_align_right') else btn.get_active()
                     
                 self.is_align_right = align_state
@@ -1143,7 +2083,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.align_right_btn.set_active(self.is_align_right)
                 self.align_right_btn.handler_unblock_by_func(self.on_align_right)
                 
-                # If right align is active, deactivate others
                 if self.is_align_right:
                     self.is_align_left = False
                     self.align_left_btn.handler_block_by_func(self.on_align_left)
@@ -1160,11 +2099,9 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_justify_btn.set_active(False)
                     self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
                     
-                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in align right state callback: {e}")
-                # Fallback on error
                 self.is_align_right = not self.is_align_right if hasattr(self, 'is_align_right') else btn.get_active()
                 self.align_right_btn.handler_block_by_func(self.on_align_right)
                 self.align_right_btn.set_active(self.is_align_right)
@@ -1186,7 +2123,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if result is not None:
                     align_state = webview.evaluate_javascript_finish(result).to_boolean()
                 else:
-                    # Fallback when we can't get JS result
                     align_state = not self.is_align_justify if hasattr(self, 'is_align_justify') else btn.get_active()
                     
                 self.is_align_justify = align_state
@@ -1194,7 +2130,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.align_justify_btn.set_active(self.is_align_justify)
                 self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
                 
-                # If justify align is active, deactivate others
                 if self.is_align_justify:
                     self.is_align_left = False
                     self.align_left_btn.handler_block_by_func(self.on_align_left)
@@ -1211,11 +2146,9 @@ class EditorWindow(Adw.ApplicationWindow):
                     self.align_right_btn.set_active(False)
                     self.align_right_btn.handler_unblock_by_func(self.on_align_right)
                     
-                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
                 self.webview.grab_focus()
             except Exception as e:
                 print(f"Error in align justify state callback: {e}")
-                # Fallback on error
                 self.is_align_justify = not self.is_align_justify if hasattr(self, 'is_align_justify') else btn.get_active()
                 self.align_justify_btn.handler_block_by_func(self.on_align_justify)
                 self.align_justify_btn.set_active(self.is_align_justify)
@@ -1283,224 +2216,6 @@ class EditorWindow(Adw.ApplicationWindow):
     def clear_ignore_changes(self):
         self.ignore_changes = False
         return False
-
-##########################
-    def on_webview_load(self, webview, load_event):
-        if load_event == WebKit.LoadEvent.FINISHED:
-            self.webview.evaluate_javascript("""
-                (function() {
-                    let p = document.querySelector('p');
-                    if (p) {
-                        let range = document.createRange();
-                        range.setStart(p, 0);
-                        range.setEnd(p, 0);
-                        let sel = window.getSelection();
-                        sel.removeAllRanges();
-                        sel.addRange(range);
-                    }
-
-                    // Inject CSS to hide native caret and style custom caret
-                    let style = document.createElement('style');
-                    style.textContent = `
-                        body[contenteditable], [contenteditable="true"] {
-                            caret-color: transparent !important;
-                            -webkit-user-select: text;
-                        }
-                        .custom-caret {
-                            position: absolute;
-                            width: 1.2px; /* Reduced from 2px */
-                            background-color: black;
-                            animation: blink 1s step-end infinite;
-                            pointer-events: none;
-                            z-index: 1000;
-                        }
-                        .custom-caret.no-blink {
-                            animation: none;
-                        }
-                        @keyframes blink {
-                            50% { opacity: 0; }
-                        }
-                        @media (prefers-color-scheme: dark) {
-                            .custom-caret { background-color: #e0e0e0; }
-                        }
-                    `;
-                    document.head.appendChild(style);
-
-                    // Create custom caret element
-                    let customCaret = document.createElement('span');
-                    customCaret.className = 'custom-caret';
-                    document.body.appendChild(customCaret);
-
-                    // Fallback: Force hide native caret via JavaScript
-                    document.body.style.caretColor = 'transparent';
-
-                    function debounce(func, wait) {
-                        let timeout;
-                        return function(...args) {
-                            clearTimeout(timeout);
-                            timeout = setTimeout(() => func(...args), wait);
-                        };
-                    }
-
-                    let isTyping = false;
-                    let typingTimeout;
-
-                    let lastContent = document.body.innerHTML;
-                    const notifyChange = debounce(function() {
-                        let currentContent = document.body.innerHTML;
-                        if (currentContent !== lastContent) {
-                            window.webkit.messageHandlers.contentChanged.postMessage('changed');
-                            lastContent = currentContent;
-                        }
-                    }, 250);
-
-                    const updateCaret = function() {
-                        const sel = window.getSelection();
-                        const state = {
-                            bold: document.queryCommandState('bold'),
-                            italic: document.queryCommandState('italic'),
-                            underline: document.queryCommandState('underline'),
-                            strikethrough: document.queryCommandState('strikethrough'),
-                            formatBlock: document.queryCommandValue('formatBlock') || 'p',
-                            fontName: document.queryCommandValue('fontName') || 'Serif',
-                            fontSize: document.queryCommandValue('fontSize') || '3',
-                            insertUnorderedList: document.queryCommandState('insertUnorderedList'),
-                            insertOrderedList: document.queryCommandState('insertOrderedList'),
-                            justifyLeft: document.queryCommandState('justifyLeft'),
-                            justifyCenter: document.queryCommandState('justifyCenter'),
-                            justifyRight: document.queryCommandState('justifyRight'),
-                            justifyFull: document.queryCommandState('justifyFull')
-                        };
-                        window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
-
-                        if (sel.rangeCount > 0) {
-                            let range = sel.getRangeAt(0);
-                            let rects = range.getClientRects();
-                            let fontSize = '11pt'; // Default
-                            let node = range.startContainer;
-
-                            if (node.nodeType === 3) { // Text node
-                                fontSize = window.getComputedStyle(node.parentElement).fontSize || '11pt';
-                            } else if (node.nodeType === 1) { // Element node
-                                fontSize = window.getComputedStyle(node).fontSize || '11pt';
-                            }
-
-                            if (rects.length > 0) {
-                                let rect = rects[0];
-                                let fontSizePx = parseFloat(fontSize); // Convert to number (e.g., "20pt" -> 20)
-                                let caretHeight = fontSizePx * 1.3; // 30% bigger for size + descenders
-                                let offset = caretHeight / 2; // Half the caret height for centering
-                                customCaret.style.height = caretHeight + 'pt';
-                                customCaret.style.left = (rect.left + window.scrollX) + 'px';
-                                customCaret.style.top = (rect.top + window.scrollY - offset + fontSizePx * 0.5) + 'px'; // Extended for descenders
-                                customCaret.style.display = 'block';
-
-                                // Control blinking based on typing state
-                                if (isTyping) {
-                                    customCaret.classList.add('no-blink');
-                                } else {
-                                    customCaret.classList.remove('no-blink');
-                                }
-                            } else {
-                                customCaret.style.display = 'none'; // Hide if no valid position
-                            }
-                        } else {
-                            customCaret.style.display = 'none'; // Hide if no selection
-                        }
-                    };
-
-                    const debouncedUpdateCaret = debounce(updateCaret, 50);
-
-                    // Typing handling
-                    document.addEventListener('input', function() {
-                        isTyping = true;
-                        clearTimeout(typingTimeout);
-                        updateCaret(); // Immediate update during typing
-                        notifyChange();
-                        typingTimeout = setTimeout(() => {
-                            isTyping = false;
-                            updateCaret(); // Update when typing stops
-                        }, 250);
-                    });
-
-                    document.addEventListener('paste', notifyChange);
-                    document.addEventListener('cut', notifyChange);
-                    document.addEventListener('selectionchange', debouncedUpdateCaret);
-                    document.addEventListener('keyup', debouncedUpdateCaret);
-                    document.addEventListener('click', debouncedUpdateCaret);
-                    updateCaret(); // Initial call
-                })();
-            """, -1, None, None, None, None, None)
-            GLib.idle_add(self.webview.grab_focus)
-
-    def apply_font_and_size_to_typing(self):
-        script = f"""
-            (function() {{
-                let currentFont = '{self.current_font}';
-                let currentFontSize = '{self.current_font_size}';
-                let sel = window.getSelection();
-                if (!sel.rangeCount) return;
-                let range = sel.getRangeAt(0);
-                if (range.collapsed) {{
-                    // No selection, set styles for new text
-                    let span = document.createElement('span');
-                    span.style.fontFamily = currentFont;
-                    span.style.fontSize = currentFontSize + 'pt';
-                    span.innerHTML = '\\u200B'; // Zero-width space to hold cursor
-                    range.insertNode(span);
-                    range.setStart(span.firstChild, 1);
-                    range.setEnd(span.firstChild, 1);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                }} else {{
-                    // Selection exists, apply to selected text
-                    document.execCommand('fontName', false, currentFont);
-                    let wrapper = document.createElement('span');
-                    wrapper.style.fontSize = currentFontSize + 'pt';
-                    try {{
-                        range.surroundContents(wrapper);
-                    }} catch (e) {{
-                        console.log("Cannot surround range: " + e);
-                        // Fallback for complex selections
-                        let nodes = getTextNodesInRange(range);
-                        nodes.forEach(node => {{
-                            let span = document.createElement('span');
-                            span.style.fontSize = currentFontSize + 'pt';
-                            node.parentNode.insertBefore(span, node);
-                            span.appendChild(node);
-                        }});
-                    }}
-                }}
-
-                // Trigger selection update to reposition custom caret
-                window.getSelection().removeAllRanges();
-                window.getSelection().addRange(range);
-
-                // Helper function to get text nodes within the selection
-                function getTextNodesInRange(range) {{
-                    let walker = document.createTreeWalker(
-                        range.commonAncestorContainer,
-                        NodeFilter.SHOW_TEXT,
-                        {{
-                            acceptNode: function(node) {{
-                                if (range.intersectsNode(node)) {{
-                                    return NodeFilter.FILTER_ACCEPT;
-                                }}
-                            }}
-                        }}
-                    );
-                    let nodes = [];
-                    let node;
-                    while (node = walker.nextNode()) {{
-                        nodes.push(node);
-                    }}
-                    return nodes;
-                }}
-            }})();
-        """
-        self.exec_js(script)
-
-
 
 if __name__ == "__main__":
     app = Writer()
