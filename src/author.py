@@ -331,7 +331,7 @@ class EditorWindow(Adw.ApplicationWindow):
         text_color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         text_color_box.set_valign(Gtk.Align.CENTER)
         text_color_box.add_css_class("color-box")
-        text_color_icon = Gtk.Image.new_from_icon_name("format-text-rich-symbolic")
+        text_color_icon = Gtk.Image.new_from_icon_name("draw-text-symbolic")
         text_color_icon.set_pixel_size(12)
         self.text_color_indicator = Gtk.DrawingArea()
         self.text_color_indicator.set_size_request(16, 3)
